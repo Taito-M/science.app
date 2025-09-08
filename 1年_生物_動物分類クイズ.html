@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>動物の分類シミュレーター（属まで・拡張可能）</title>
+<style>
+  :root{
+    --bg:#0b1020; --card:#111833; --muted:#9fb0d9; --text:#e9f0ff;
+    --accent:#7aa2ff; --accent-2:#a6e3a1; --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,"Noto Sans JP","Hiragino Kaku Gothic ProN","Meiryo",Arial,sans-serif;
+    background:
+      radial-gradient(1200px 800px at 15% -10%, rgba(122,162,255,.12), transparent 60%),
+      radial-gradient(900px 700px at 110% 10%, rgba(166,227,161,.08), transparent 55%),
+      var(--bg);
+    color:var(--text);line-height:1.65}
+  header{padding:16px 22px;border-bottom:1px solid rgba(255,255,255,.08);
+    position:sticky;top:0;backdrop-filter:saturate(120%) blur(8px);
+    background:rgba(11,16,51,.7);z-index:10}
+  header h1{margin:0;font-size:18px}
+  header .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  main{display:grid;grid-template-columns:1.15fr .85fr;gap:20px;padding:20px}
+  @media (max-width: 980px){main{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+    border:1px solid rgba(255,255,255,.08);border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .pad{padding:18px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+  button{appearance:none;border:none;cursor:pointer;padding:10px 14px;border-radius:12px;font-weight:700;
+    color:#0b1020;background:#dfe6ff;transition:.15s transform ease}
+  button:active{transform:translateY(1px)}
+  .btn-green{background:var(--accent-2)}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,.14)}
+  .btn-danger{background:var(--danger); color:white}
+  .muted{color:var(--muted)}
+  .question{font-size:22px;margin:6px 0 8px}
+  .progress{height:10px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden;margin:8px 0 4px}
+  .progress>div{height:100%;background:linear-gradient(90deg, var(--accent), #9fd3ff);width:0%}
+  .list{list-style:none;margin:10px 0 0;padding:0}
+  .list li{display:flex;justify-content:space-between;gap:10px;padding:10px;border-bottom:1px dashed rgba(255,255,255,.08)}
+  .badge{font-variant-numeric:tabular-nums;background:rgba(122,162,255,.18);color:#eaf2ff;padding:2px 8px;border-radius:999px}
+  .tiny{font-size:12px}
+  .grid{display:grid;gap:8px}
+  .grid.cols-3{grid-template-columns:repeat(3, 1fr)}
+  .grid.cols-2{grid-template-columns:repeat(2, 1fr)}
+  .kvs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);font-size:12px}
+  .y{border-color:rgba(166,227,161,.4)} .n{border-color:rgba(255,107,107,.4)}
+  .toggle{display:flex;gap:8px;margin-top:6px}
+  .toggle button{padding:8px 12px;border-radius:999px}
+  .toggle .active{background:var(--accent-2)}
+  .right h3{margin:0 0 6px}
+  details{margin-top:10px}
+  summary{cursor:pointer}
+  input[type="file"]{display:none}
+  label.file{cursor:pointer;border:1px dashed rgba(255,255,255,.25);padding:8px 12px;border-radius:10px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);font-size:12px;margin-right:6px}
+  .wrap{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>動物の分類シミュレーター（属まで）</h1>
+  <div class="sub">Yes/No/Unknown の回答で、全動物界に対応する拡張型データセットから「属」候補を絞り込む。データは自由に読み込み・拡張できます。</div>
+</header>
+
+<main>
+  <section class="card pad">
+    <div class="row">
+      <div class="tiny">Q<span id="qIndex">1</span> / <span id="qTotal">20</span></div>
+      <div class="tiny muted">Y: はい / N: いいえ / U: わからない</div>
+      <span class="tag" id="poolInfo"></span>
+      <span class="tag" id="datasetInfo"></span>
+    </div>
+    <div id="question" class="question">読み込み中…</div>
+    <div class="row">
+      <button class="btn-green" id="btnYes">はい</button>
+      <button class="" id="btnNo">いいえ</button>
+      <button class="" id="btnUnknown">わからない</button>
+    </div>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="row">
+      <button class="btn-ghost" id="btnUndo">1つ戻る</button>
+      <button class="btn-ghost" id="btnRestart">やり直す</button>
+      <button class="btn-ghost" id="btnExplain">根拠を表示</button>
+      <button class="btn-ghost" id="btnExport">結果JSON</button>
+      <button class="btn-ghost" id="btnPrint">印刷</button>
+      <label for="fileInput" class="file">データ読込（JSON）</label>
+      <input type="file" id="fileInput" accept="application/json" />
+    </div>
+    <details>
+      <summary>質問一覧（あなたの回答）</summary>
+      <div id="answers" class="wrap tiny muted"></div>
+    </details>
+  </section>
+
+  <aside class="card pad right">
+    <div class="row">
+      <h3>トップ候補</h3>
+      <div class="toggle">
+        <button id="modeGenus" class="active">属</button>
+        <button id="modeFamily">科</button>
+        <button id="modeClass">綱</button>
+        <button id="modePhylum">門</button>
+      </div>
+    </div>
+    <ul id="leaderboard" class="list"></ul>
+
+    <details open>
+      <summary>上位候補の根拠</summary>
+      <div id="explain"></div>
+    </details>
+
+    <details>
+      <summary>データセット（内蔵＋読込）</summary>
+      <div class="tiny">
+        <div>内蔵データの他に、JSONを読み込んで拡張できます。スキーマ：</div>
+        <pre class="wrap mono tiny">
+{
+  "traits":[{"key":"feathers","label":"羽毛がある"}, ...],
+  "phyla":[{"key":"Chordata","ja":"脊索動物門","traits":{"vertebrate":true}}],
+  "classes":[{"key":"Mammalia","ja":"哺乳綱","phylum_key":"Chordata","traits":{"hair":true,"milk":true}}],
+  "families":[{"key":"Felidae","ja":"ネコ科","class_key":"Mammalia","traits":{"carnivore_teeth":true}}],
+  "genera":[{"key":"Panthera","ja":"ヒョウ属","family_key":"Felidae","traits":{"can_roar":true}}]
+}
+        </pre>
+      </div>
+    </details>
+  </aside>
+</main>
+
+<footer class="pad tiny muted">
+  © 2025 教育用デモ。注意：本ツールは形質の「典型」を用いた簡易推定です。例外・再分類・幼体/成体差などには十分対応しません。
+</footer>
+
+<script>
+/* ===================== 形質（質問）定義 ===================== */
+const TRAITS = [
+  // 基本（界・門の分岐に効く）
+  {key:'vertebrate', label:'脊椎（背骨）がある'},
+  {key:'exoskeleton', label:'外骨格がある（昆虫・甲殻類など）'},
+  {key:'radial_symmetry', label:'放射相称（ヒトデ・クラゲ等の体のつくり）'},
+  {key:'stinging_cells', label:'刺胞（刺す細胞）をもつ（クラゲ等）'},
+  {key:'tube_feet', label:'管足がある（ウニ・ヒトデ）'},
+  {key:'segmented_body', label:'体が繰り返し（節）でできている'},
+
+  // 脊椎動物の大分岐
+  {key:'endothermic', label:'恒温（体温を一定に保つ）'},
+  {key:'feathers', label:'羽毛がある'},
+  {key:'hair', label:'体毛（毛）がある'},
+  {key:'scales', label:'乾いたウロコがある（爬虫類等）'},
+  {key:'moist_skin', label:'湿った皮膚（両生類のような）'},
+  {key:'fins', label:'ひれ（魚のような）'},
+  {key:'gills', label:'えらで呼吸する'},
+  {key:'lungs', label:'肺で呼吸する'},
+
+  // 付属肢／翼／脚
+  {key:'wings', label:'翼がある'},
+  {key:'can_fly', label:'（継続的に）飛行できる'},
+  {key:'legs_0', label:'脚がない（外見上）'},
+  {key:'legs_2', label:'脚が2本'},
+  {key:'legs_4', label:'脚が4本'},
+  {key:'legs_6', label:'脚が6本（昆虫）'},
+  {key:'legs_8', label:'脚が8本（クモ類）'},
+  {key:'legs_many', label:'多くの脚（甲殻類・多足類など）'},
+
+  // 生態
+  {key:'aquatic', label:'水中生活に強く適応'},
+  {key:'marine', label:'主に海で生活'},
+  {key:'freshwater', label:'主に淡水で生活'},
+  {key:'terrestrial', label:'主に陸上で生活'},
+  {key:'nocturnal', label:'夜行性が多い'},
+  {key:'echolocation', label:'エコーロケーションを使う'},
+
+  // 生殖
+  {key:'egg_laying', label:'卵生（卵を産む）'},
+  {key:'live_birth', label:'胎生（子を産む）'},
+  {key:'metamorphosis', label:'はっきりした変態がある'},
+
+  // 口・食性
+  {key:'beak', label:'クチバシがある（歯がない）'},
+  {key:'herbivore_teeth', label:'草食に適した臼歯など'},
+  {key:'carnivore_teeth', label:'肉食に適した鋭い歯'},
+  {key:'omnivore', label:'雑食が多い'},
+
+  // その他
+  {key:'hooves', label:'ひづめがある'},
+  {key:'ruminant', label:'反芻する'},
+  {key:'pouch', label:'育児嚢（有袋類）'},
+  {key:'carapace', label:'甲羅（背甲等）をもつ'},
+  {key:'shell_external', label:'外套膜が作る殻（カタツムリ等）'},
+  {key:'bivalve_shell', label:'二枚貝の殻'},
+  {key:'tentacles', label:'触手をもつ'},
+  {key:'arms_8', label:'腕が8本（タコ類）'},
+  {key:'arms_10', label:'腕が10本（イカ類）'},
+  {key:'venomous_common', label:'毒をもつ種が代表的（ヘビ・クラゲ等）'}
+];
+
+/* ===================== データ（内蔵の例） ===================== */
+const BUILTIN_DATA = {
+  "traits": [],
+  "phyla": [
+    {"key":"Chordata","ja":"脊索動物門","traits":{"vertebrate":true,"segmented_body":true}},
+    {"key":"Arthropoda","ja":"節足動物門","traits":{"exoskeleton":true,"segmented_body":true}},
+    {"key":"Mollusca","ja":"軟体動物門","traits":{}},
+    {"key":"Annelida","ja":"環形動物門","traits":{"segmented_body":true,"legs_0":true}},
+    {"key":"Echinodermata","ja":"棘皮動物門","traits":{"radial_symmetry":true,"tube_feet":true,"marine":true,"legs_0":true}},
+    {"key":"Cnidaria","ja":"刺胞動物門","traits":{"radial_symmetry":true,"stinging_cells":true,"aquatic":true,"marine":true,"legs_0":true}},
+    {"key":"Porifera","ja":"海綿動物門","traits":{"aquatic":true,"marine":true,"legs_0":true}}
+  ],
+  "classes":[
+    {"key":"Mammalia","ja":"哺乳綱","phylum_key":"Chordata",
+     "traits":{"hair":true,"endothermic":true,"milk":true,"live_birth":true,"egg_laying":false,"lungs":true,"legs_4":true,"terrestrial":true}},
+    {"key":"Aves","ja":"鳥綱","phylum_key":"Chordata",
+     "traits":{"feathers":true,"beak":true,"egg_laying":true,"wings":true,"can_fly":true,"endothermic":true,"legs_2":true,"lungs":true,"terrestrial":true}},
+    {"key":"Reptilia","ja":"爬虫綱","phylum_key":"Chordata",
+     "traits":{"scales":true,"egg_laying":true,"lungs":true,"legs_4":true,"terrestrial":true,"endothermic":false}},
+    {"key":"Amphibia","ja":"両生綱","phylum_key":"Chordata",
+     "traits":{"moist_skin":true,"metamorphosis":true,"egg_laying":true,"freshwater":true,"legs_4":true}},
+    {"key":"Actinopterygii","ja":"条鰭綱","phylum_key":"Chordata",
+     "traits":{"fins":true,"gills":true,"aquatic":true,"egg_laying":true}},
+    {"key":"Insecta","ja":"昆虫綱","phylum_key":"Arthropoda",
+     "traits":{"legs_6":true,"wings":null,"antennae":true,"terrestrial":true,"metamorphosis":true}},
+    {"key":"Arachnida","ja":"クモ綱","phylum_key":"Arthropoda",
+     "traits":{"legs_8":true,"antennae":false,"terrestrial":true}},
+    {"key":"Malacostraca","ja":"軟甲綱（甲殻類）","phylum_key":"Arthropoda",
+     "traits":{"legs_many":true,"aquatic":true}},
+    {"key":"Cephalopoda","ja":"頭足綱","phylum_key":"Mollusca",
+     "traits":{"tentacles":true,"marine":true,"arms_8":null,"arms_10":null,"shell_external":false}},
+    {"key":"Gastropoda","ja":"腹足綱","phylum_key":"Mollusca",
+     "traits":{"shell_external":true,"legs_0":true}},
+    {"key":"Bivalvia","ja":"二枚貝綱","phylum_key":"Mollusca",
+     "traits":{"bivalve_shell":true,"legs_0":true,"aquatic":true}},
+    {"key":"Clitellata","ja":"貧毛綱（ミミズ等）","phylum_key":"Annelida",
+     "traits":{"legs_0":true,"terrestrial":true}},
+    {"key":"Scyphozoa","ja":"鉢虫綱（クラゲ）","phylum_key":"Cnidaria",
+     "traits":{"marine":true}},
+    {"key":"Hydrozoa","ja":"ヒドロ虫綱","phylum_key":"Cnidaria",
+     "traits":{"freshwater":null,"marine":true}}
+  ],
+  "orders":[],
+  "families":[
+    {"key":"Felidae","ja":"ネコ科","class_key":"Mammalia","traits":{"carnivore_teeth":true}},
+    {"key":"Canidae","ja":"イヌ科","class_key":"Mammalia","traits":{"omnivore":true}},
+    {"key":"Ursidae","ja":"クマ科","class_key":"Mammalia","traits":{"omnivore":true}},
+    {"key":"Hominidae","ja":"ヒト科","class_key":"Mammalia","traits":{"legs_2":true,"omnivore":true}},
+    {"key":"Cervidae","ja":"シカ科","class_key":"Mammalia","traits":{"herbivore_teeth":true,"ruminant":true,"hooves":true}},
+    {"key":"Bovidae","ja":"ウシ科","class_key":"Mammalia","traits":{"ruminant":true,"hooves":true}},
+    {"key":"Delphinidae","ja":"マイルカ科","class_key":"Mammalia","traits":{"aquatic":true,"marine":true,"legs_0":true,"fins":true,"can_fly":false,"legs_4":false}},
+    {"key":"Phocidae","ja":"アザラシ科","class_key":"Mammalia","traits":{"aquatic":true,"marine":true,"legs_0":true,"fins":true}},
+    {"key":"ChiropteraFam","ja":"コウモリ科（便宜）","class_key":"Mammalia","traits":{"wings":true,"can_fly":true, "legs_2":true}},
+    {"key":"Muridae","ja":"ネズミ科","class_key":"Mammalia","traits":{"omnivore":true,"legs_4":true}},
+
+    {"key":"Corvidae","ja":"カラス科","class_key":"Aves","traits":{"beak":true,"can_fly":true}},
+    {"key":"Anatidae","ja":"カモ科","class_key":"Aves","traits":{"webbed_feet":true,"freshwater":true}},
+    {"key":"Sturnidae","ja":"ムクドリ科","class_key":"Aves","traits":{"iridescent_plumage":true}},
+    {"key":"Accipitridae","ja":"タカ科","class_key":"Aves","traits":{"carnivore_teeth":false,"beak":true}},
+    {"key":"Strigidae","ja":"フクロウ科","class_key":"Aves","traits":{"nocturnal":true}},
+
+    {"key":"Crocodylidae","ja":"クロコダイル科","class_key":"Reptilia","traits":{"aquatic":true,"freshwater":true,"carnivore_teeth":true}},
+    {"key":"Testudinidae","ja":"リクガメ科","class_key":"Reptilia","traits":{"carapace":true,"terrestrial":true}},
+    {"key":"Cheloniidae","ja":"ウミガメ科","class_key":"Reptilia","traits":{"carapace":true,"marine":true}},
+
+    {"key":"Ranidae","ja":"アカガエル科","class_key":"Amphibia","traits":{"freshwater":true,"metamorphosis":true}},
+    {"key":"Bufonidae","ja":"ヒキガエル科","class_key":"Amphibia","traits":{"freshwater":true,"metamorphosis":true}},
+
+    {"key":"Salmonidae","ja":"サケ科","class_key":"Actinopterygii","traits":{"freshwater":true,"marine":true,"fins":true}},
+    {"key":"Cyprinidae","ja":"コイ科","class_key":"Actinopterygii","traits":{"freshwater":true,"fins":true}},
+    {"key":"Scombridae","ja":"サバ科","class_key":"Actinopterygii","traits":{"marine":true,"fins":true}},
+
+    {"key":"Apidae","ja":"ミツバチ科","class_key":"Insecta","traits":{"wings":true,"can_fly":true}},
+    {"key":"Culicidae","ja":"カ科","class_key":"Insecta","traits":{"wings":true,"can_fly":true}},
+    {"key":"Nymphalidae","ja":"タテハチョウ科","class_key":"Insecta","traits":{"wings":true,"can_fly":true}},
+    {"key":"Drosophilidae","ja":"ショウジョウバエ科","class_key":"Insecta","traits":{"wings":true}},
+    {"key":"Coccinellidae","ja":"テントウムシ科","class_key":"Insecta","traits":{"wings":true}},
+
+    {"key":"Araneidae","ja":"コガネグモ科","class_key":"Arachnida","traits":{"venomous_common":true}},
+    {"key":"Theridiidae","ja":"ヒメグモ科","class_key":"Arachnida","traits":{"venomous_common":true}},
+
+    {"key":"Portunidae","ja":"ガザミ科","class_key":"Malacostraca","traits":{"marine":true}},
+    {"key":"Astacidae","ja":"ザリガニ科","class_key":"Malacostraca","traits":{"freshwater":true}},
+
+    {"key":"Octopodidae","ja":"マダコ科","class_key":"Cephalopoda","traits":{"arms_8":true}},
+    {"key":"Loliginidae","ja":"ヤリイカ科","class_key":"Cephalopoda","traits":{"arms_10":true}},
+    {"key":"Sepiidae","ja":"コウイカ科","class_key":"Cephalopoda","traits":{"arms_10":true}},
+
+    {"key":"Helicidae","ja":"マイマイ科","class_key":"Gastropoda","traits":{"shell_external":true,"terrestrial":true}},
+    {"key":"Achatinidae","ja":"アフリカマイマイ科","class_key":"Gastropoda","traits":{"shell_external":true}},
+
+    {"key":"Mytilidae","ja":"ムラサキイガイ科","class_key":"Bivalvia","traits":{"bivalve_shell":true,"marine":true}},
+    {"key":"Ostreidae","ja":"カキ科","class_key":"Bivalvia","traits":{"bivalve_shell":true,"marine":true}},
+
+    {"key":"Lumbricidae","ja":"ミミズ科","class_key":"Clitellata","traits":{"terrestrial":true}},
+    {"key":"Hirudinidae","ja":"ヒル科","class_key":"Clitellata","traits":{"aquatic":true}},
+
+    {"key":"Asteriidae","ja":"ヒトデ科","class_key":"Asteroidea","traits":{"marine":true,"tube_feet":true}},
+    {"key":"Strongylocentrotidae","ja":"ムラサキウニ科","class_key":"Echinoidea","traits":{"marine":true,"tube_feet":true}},
+
+    {"key":"Aureliidae","ja":"ミズクラゲ科","class_key":"Scyphozoa","traits":{"marine":true}},
+    {"key":"Hydridae","ja":"ヒドラ科","class_key":"Hydrozoa","traits":{"freshwater":true}}
+  ],
+  "genera":[
+    {"key":"Homo","ja":"ヒト属","family_key":"Hominidae","traits":{"legs_2":true}},
+    {"key":"Pan","ja":"チンパンジー属","family_key":"Hominidae","traits":{"legs_2":true}},
+    {"key":"Canis","ja":"イヌ属","family_key":"Canidae","traits":{"carnivore_teeth":true}},
+    {"key":"Vulpes","ja":"キツネ属","family_key":"Canidae","traits":{"carnivore_teeth":true}},
+    {"key":"Felis","ja":"ネコ属","family_key":"Felidae","traits":{"carnivore_teeth":true}},
+    {"key":"Panthera","ja":"ヒョウ属","family_key":"Felidae","traits":{"carnivore_teeth":true}},
+    {"key":"Ursus","ja":"クマ属","family_key":"Ursidae","traits":{"omnivore":true}},
+    {"key":"Cervus","ja":"シカ属","family_key":"Cervidae","traits":{"herbivore_teeth":true,"ruminant":true}},
+    {"key":"Bos","ja":"ウシ属","family_key":"Bovidae","traits":{"ruminant":true}},
+    {"key":"Delphinus","ja":"イルカ属（近似）","family_key":"Delphinidae","traits":{"aquatic":true,"marine":true,"legs_0":true,"fins":true}},
+    {"key":"Phoca","ja":"アザラシ属","family_key":"Phocidae","traits":{"marine":true,"aquatic":true}},
+    {"key":"Myotis","ja":"コウモリ属（アブラコウモリ類）","family_key":"ChiropteraFam","traits":{"wings":true,"can_fly":true}},
+    {"key":"Mus","ja":"ハツカネズミ属","family_key":"Muridae","traits":{}},
+    {"key":"Rattus","ja":"ドブネズミ属","family_key":"Muridae","traits":{}},
+
+    {"key":"Corvus","ja":"カラス属","family_key":"Corvidae","traits":{"nocturnal":false}},
+    {"key":"Pica","ja":"カササギ属","family_key":"Corvidae","traits":{}},
+    {"key":"Passer","ja":"スズメ属","family_key":"Sturnidae","traits":{"beak":true}},
+    {"key":"Sturnus","ja":"ムクドリ属","family_key":"Sturnidae","traits":{"iridescent_plumage":true}},
+    {"key":"Anas","ja":"マガモ属","family_key":"Anatidae","traits":{"freshwater":true,"webbed_feet":true}},
+    {"key":"Cygnus","ja":"ハクチョウ属","family_key":"Anatidae","traits":{"long_neck":true,"freshwater":true}},
+    {"key":"Aquila","ja":"ワシ属","family_key":"Accipitridae","traits":{"can_fly":true}},
+    {"key":"Strix","ja":"フクロウ属","family_key":"Strigidae","traits":{"nocturnal":true}},
+
+    {"key":"Crocodylus","ja":"クロコダイル属","family_key":"Crocodylidae","traits":{"aquatic":true}},
+    {"key":"Testudo","ja":"リクガメ属","family_key":"Testudinidae","traits":{"terrestrial":true,"carapace":true}},
+    {"key":"Chelonia","ja":"アオウミガメ属","family_key":"Cheloniidae","traits":{"marine":true,"carapace":true}},
+
+    {"key":"Rana","ja":"アカガエル属","family_key":"Ranidae","traits":{"freshwater":true}},
+    {"key":"Bufo","ja":"ヒキガエル属","family_key":"Bufonidae","traits":{"freshwater":true}},
+
+    {"key":"Salmo","ja":"サケ属（タイセイヨウサケ等）","family_key":"Salmonidae","traits":{"freshwater":true,"marine":true}},
+    {"key":"Oncorhynchus","ja":"サケ属（ベニザケ等）","family_key":"Salmonidae","traits":{"freshwater":true,"marine":true}},
+    {"key":"Cyprinus","ja":"コイ属","family_key":"Cyprinidae","traits":{"freshwater":true}},
+    {"key":"Carassius","ja":"フナ属","family_key":"Cyprinidae","traits":{"freshwater":true}},
+    {"key":"Thunnus","ja":"マグロ属","family_key":"Scombridae","traits":{"marine":true}},
+
+    {"key":"Apis","ja":"ミツバチ属","family_key":"Apidae","traits":{"can_fly":true}},
+    {"key":"Bombus","ja":"マルハナバチ属","family_key":"Apidae","traits":{"can_fly":true}},
+    {"key":"Anopheles","ja":"ハマダラカ属","family_key":"Culicidae","traits":{}},
+    {"key":"Culex","ja":"イエカ属","family_key":"Culicidae","traits":{}},
+    {"key":"Danaus","ja":"マダラチョウ属","family_key":"Nymphalidae","traits":{"can_fly":true}},
+    {"key":"Drosophila","ja":"ショウジョウバエ属","family_key":"Drosophilidae","traits":{}},
+    {"key":"Coccinella","ja":"テントウムシ属","family_key":"Coccinellidae","traits":{}},
+
+    {"key":"Araneus","ja":"コガネグモ属","family_key":"Araneidae","traits":{"venomous_common":true}},
+    {"key":"Latrodectus","ja":"クロゴケグモ属","family_key":"Theridiidae","traits":{"venomous_common":true}},
+
+    {"key":"Carcinus","ja":"ショウジンガニ属","family_key":"Portunidae","traits":{"marine":true}},
+    {"key":"Astacus","ja":"ヨーロッパザリガニ属","family_key":"Astacidae","traits":{"freshwater":true}},
+
+    {"key":"Octopus","ja":"マダコ属","family_key":"Octopodidae","traits":{"arms_8":true}},
+    {"key":"Loligo","ja":"ヤリイカ属","family_key":"Loliginidae","traits":{"arms_10":true}},
+    {"key":"Sepia","ja":"コウイカ属","family_key":"Sepiidae","traits":{"arms_10":true}},
+    {"key":"Helix","ja":"マイマイ属","family_key":"Helicidae","traits":{"shell_external":true}},
+    {"key":"Achatina","ja":"アフリカマイマイ属","family_key":"Achatinidae","traits":{"shell_external":true}},
+    {"key":"Mytilus","ja":"イガイ属","family_key":"Mytilidae","traits":{"bivalve_shell":true,"marine":true}},
+    {"key":"Crassostrea","ja":"マガキ属","family_key":"Ostreidae","traits":{"bivalve_shell":true,"marine":true}},
+
+    {"key":"Lumbricus","ja":"ミミズ属","family_key":"Lumbricidae","traits":{"terrestrial":true}},
+    {"key":"Hirudo","ja":"ヒル属","family_key":"Hirudinidae","traits":{"aquatic":true}},
+
+    {"key":"Asterias","ja":"ヒトデ属","family_key":"Asteriidae","traits":{"marine":true,"tube_feet":true}},
+    {"key":"Strongylocentrotus","ja":"ムラサキウニ属","family_key":"Strongylocentrotidae","traits":{"marine":true,"tube_feet":true}},
+
+    {"key":"Aurelia","ja":"ミズクラゲ属","family_key":"Aureliidae","traits":{"marine":true}},
+    {"key":"Hydra","ja":"ヒドラ属","family_key":"Hydridae","traits":{"freshwater":true}}
+  ]
+};
+
+/* ===================== 内部状態 ===================== */
+const MAX_QUESTIONS = 20;
+let asked = []; // [{key, answer}]
+let dataset = null; // active dataset (merged)
+let genusScores = new Map();  // genusIndex -> score
+let familyScores = new Map(); // familyIndex -> score
+let classScores  = new Map(); // classIndex  -> score
+let phylumScores = new Map(); // phylumIndex -> score
+let mode = 'genus'; // leaderboard mode
+
+/* ===================== データ結合 & ルックアップ ===================== */
+function mergeDatasets(a,b){
+  // shallow concat by key uniqueness
+  const mergeList = (ka, kb, key='key') => {
+    const map = new Map();
+    for(const x of ka||[]) map.set(x[key], x);
+    for(const y of kb||[]) map.set(y[key], y);
+    return [...map.values()];
+  };
+  return {
+    traits: a.traits || TRAITS,
+    phyla: mergeList(a.phyla||[], b.phyla||[]),
+    classes: mergeList(a.classes||[], b.classes||[]),
+    orders: mergeList(a.orders||[], b.orders||[]),
+    families: mergeList(a.families||[], b.families||[]),
+    genera: mergeList(a.genera||[], b.genera||[])
+  };
+}
+
+let idx = {};
+function buildIndexes(){
+  idx.phylumByKey = new Map(dataset.phyla.map((x,i)=>[x.key,i]));
+  idx.classByKey  = new Map(dataset.classes.map((x,i)=>[x.key,i]));
+  idx.orderByKey  = new Map((dataset.orders||[]).map((x,i)=>[x.key,i]));
+  idx.familyByKey = new Map(dataset.families.map((x,i)=>[x.key,i]));
+  // links from genus to ancestry
+  idx.genAncestry = dataset.genera.map(g=>{
+    let f = g.family_key ? dataset.families[idx.familyByKey.get(g.family_key)] : null;
+    let o = f?.order_key ? (dataset.orders||[])[idx.orderByKey.get(f.order_key)] : (g.order_key ? (dataset.orders||[])[idx.orderByKey.get(g.order_key)] : null);
+    let c = f?.class_key ? dataset.classes[idx.classByKey.get(f.class_key)] : (o?.class_key ? dataset.classes[idx.classByKey.get(o.class_key)] : (g.class_key ? dataset.classes[idx.classByKey.get(g.class_key)] : null));
+    let p = c?.phylum_key ? dataset.phyla[idx.phylumByKey.get(c.phylum_key)] : (g.phylum_key ? dataset.phyla[idx.phylumByKey.get(g.phylum_key)] : null);
+    return {family:f, order:o, class:c, phylum:p};
+  });
+}
+
+/* ===================== スコアリング（継承評価） ===================== */
+function val(obj, key){
+  const v = obj?.traits?.[key];
+  return (v===true || v===false) ? v : null;
+}
+function effectiveTraitForGenus(genIndex, key){
+  const g = dataset.genera[genIndex];
+  const anc = idx.genAncestry[genIndex];
+  return val(g,key) ?? val(anc.family,key) ?? val(anc.order,key) ?? val(anc.class,key) ?? val(anc.phylum,key) ?? null;
+}
+
+function applyAnswer(key, answer, record=true){
+  // Genus scores
+  for(let i=0;i<dataset.genera.length;i++){
+    const v = effectiveTraitForGenus(i, key);
+    let d=0;
+    if(answer==='yes'){ if(v===true) d=2; else if(v===false) d=-2; }
+    else if(answer==='no'){ if(v===false) d=1; else if(v===true) d=-1; }
+    genusScores.set(i,(genusScores.get(i)||0)+d);
+  }
+  // Family/Class/Phylum quick scores (for reference)
+  for(let i=0;i<dataset.families.length;i++){
+    const v = val(dataset.families[i], key) ?? val(dataset.classes[idx.classByKey.get(dataset.families[i].class_key)], key) ?? null;
+    let d=0; if(answer==='yes'){ if(v===true) d=2; else if(v===false) d=-2; }
+    else if(answer==='no'){ if(v===false) d=1; else if(v===true) d=-1; }
+    familyScores.set(i,(familyScores.get(i)||0)+d);
+  }
+  for(let i=0;i<dataset.classes.length;i++){
+    const v = val(dataset.classes[i], key) ?? val(dataset.phyla[idx.phylumByKey.get(dataset.classes[i].phylum_key)], key) ?? null;
+    let d=0; if(answer==='yes'){ if(v===true) d=2; else if(v===false) d=-2; }
+    else if(answer==='no'){ if(v===false) d=1; else if(v===true) d=-1; }
+    classScores.set(i,(classScores.get(i)||0)+d);
+  }
+  for(let i=0;i<dataset.phyla.length;i++){
+    const v = val(dataset.phyla[i], key);
+    let d=0; if(answer==='yes'){ if(v===true) d=2; else if(v===false) d=-2; }
+    else if(answer==='no'){ if(v===false) d=1; else if(v===true) d=-1; }
+    phylumScores.set(i,(phylumScores.get(i)||0)+d);
+  }
+  if(record) asked.push({key, answer});
+}
+
+/* ===================== 質問選択（情報量） ===================== */
+function infoEntropy(attrKey, candIdxs){
+  let t=0,f=0;
+  for(const i of candIdxs){
+    const v = effectiveTraitForGenus(i, attrKey);
+    if(v===true) t++; else if(v===false) f++;
+  }
+  const n=t+f; if(n===0) return -1;
+  const p=t/n,q=f/n;
+  return (p? -p*Math.log2(p):0)+(q? -q*Math.log2(q):0);
+}
+function chooseNextTrait(){
+  const askedKeys = new Set(asked.map(a=>a.key));
+  const sorted = [...genusScores.entries()].sort((a,b)=>b[1]-a[1]);
+  const topIdxs = sorted.slice(0, Math.min(24, sorted.length||dataset.genera.length)).map(([i,_])=>i);
+  let bestKey=null, bestH=-1;
+  for(const t of TRAITS){
+    if(askedKeys.has(t.key)) continue;
+    const H = infoEntropy(t.key, topIdxs);
+    if(H>bestH){ bestH=H; bestKey=t.key; }
+  }
+  return bestKey;
+}
+
+/* ===================== UI描画 ===================== */
+function updateProgress(){
+  const bar = document.getElementById('bar');
+  const qIndex = document.getElementById('qIndex');
+  const qTotal = document.getElementById('qTotal');
+  qIndex.textContent = Math.min(asked.length+1, MAX_QUESTIONS);
+  qTotal.textContent = MAX_QUESTIONS;
+  bar.style.width = (asked.length / MAX_QUESTIONS * 100).toFixed(1) + '%';
+  document.getElementById('answers').textContent = asked.map(a=>`- ${getTraitLabel(a.key)} … ${a.answer==='yes'?'はい':a.answer==='no'?'いいえ':'わからない'}`).join('\n');
+  document.getElementById('poolInfo').textContent = `候補属: ${dataset.genera.length}`;
+  document.getElementById('datasetInfo').textContent = `門:${dataset.phyla.length} 綱:${dataset.classes.length} 科:${dataset.families.length}`;
+}
+function getTraitLabel(key){ return (TRAITS.find(t=>t.key===key)||{}).label || key; }
+
+function renderQuestion(){
+  if(asked.length >= MAX_QUESTIONS){
+    document.getElementById('question').textContent = '質問は以上です。右側の候補と根拠を確認してください。';
+    renderLeaderboard(true);
+    return;
+  }
+  const key = chooseNextTrait();
+  const q = document.getElementById('question');
+  if(!key){ q.textContent='質問は出せません（データに未定義）—右側を確認してください。'; renderLeaderboard(true); return; }
+  q.dataset.key = key;
+  q.textContent = getTraitLabel(key) + '？';
+  renderLeaderboard();
+}
+function shortTaxonName(g){
+  const fam = g.family_key ? dataset.families[idx.familyByKey.get(g.family_key)] : null;
+  const cls = fam?.class_key ? dataset.classes[idx.classByKey.get(fam.class_key)]
+            : (g.class_key ? dataset.classes[idx.classByKey.get(g.class_key)] : null);
+  const phy = cls?.phylum_key ? dataset.phyla[idx.phylumByKey.get(cls.phylum_key)] : null;
+  return `${g.ja||g.key} <span class="tiny muted">（${fam?fam.ja+' / ':''}${cls?cls.ja+' / ':''}${phy?phy.ja:''}）</span>`;
+}
+
+function renderLeaderboard(final=false){
+  const lb = document.getElementById('leaderboard');
+  let items=[]; let max=0;
+  if(mode==='genus'){
+    const sorted = [...genusScores.entries()].sort((a,b)=>b[1]-a[1]);
+    max = sorted.length? sorted[0][1] : 0;
+    items = sorted.slice(0, 12).map(([i,sc])=>{
+      const g = dataset.genera[i];
+      const rel = max>0 ? Math.max(0, Math.round((sc/max)*100)) : 0;
+      return `<li><div>${shortTaxonName(g)}</div><span class="badge">${sc>=0? '+'+sc:sc} / ${rel}%</span></li>`;
+    });
+  }else if(mode==='family'){
+    const sorted = [...familyScores.entries()].sort((a,b)=>b[1]-a[1]);
+    max = sorted.length? sorted[0][1] : 0;
+    items = sorted.slice(0, 12).map(([i,sc])=>{
+      const f = dataset.families[i];
+      const cls = dataset.classes[idx.classByKey.get(f.class_key)];
+      const rel = max>0 ? Math.max(0, Math.round((sc/max)*100)) : 0;
+      return `<li><div>${f.ja||f.key} <span class="tiny muted">（${cls?.ja||''}）</span></div><span class="badge">${sc>=0? '+'+sc:sc} / ${rel}%</span></li>`;
+    });
+  }else if(mode==='class'){
+    const sorted = [...classScores.entries()].sort((a,b)=>b[1]-a[1]);
+    max = sorted.length? sorted[0][1] : 0;
+    items = sorted.slice(0, 12).map(([i,sc])=>{
+      const c = dataset.classes[i];
+      const p = dataset.phyla[idx.phylumByKey.get(c.phylum_key)];
+      const rel = max>0 ? Math.max(0, Math.round((sc/max)*100)) : 0;
+      return `<li><div>${c.ja||c.key} <span class="tiny muted">（${p?.ja||''}）</span></div><span class="badge">${sc>=0? '+'+sc:sc} / ${rel}%</span></li>`;
+    });
+  }else{
+    const sorted = [...phylumScores.entries()].sort((a,b)=>b[1]-a[1]);
+    max = sorted.length? sorted[0][1] : 0;
+    items = sorted.slice(0, 12).map(([i,sc])=>{
+      const p = dataset.phyla[i];
+      const rel = max>0 ? Math.max(0, Math.round((sc/max)*100)) : 0;
+      return `<li><div>${p.ja||p.key}</div><span class="badge">${sc>=0? '+'+sc:sc} / ${rel}%</span></li>`;
+    });
+  }
+  lb.innerHTML = items.join('');
+  if(final){ buildExplanation(); }
+}
+
+function buildExplanation(){
+  const ex = document.getElementById('explain');
+  const top = [...genusScores.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const parts = [];
+  for(const [i,sc] of top){
+    const g = dataset.genera[i];
+    const anc = idx.genAncestry[i];
+    const matches=[],conflicts=[];
+    for(const a of asked){
+      const v = effectiveTraitForGenus(i, a.key);
+      if(a.answer==='unknown' || v===null) continue;
+      if((a.answer==='yes' && v===true) || (a.answer==='no' && v===false)) matches.push(getTraitLabel(a.key));
+      else conflicts.push(getTraitLabel(a.key));
+    }
+    parts.push(`<div class="kvs">
+      <div><div class="pill y">一致</div><div class="tiny">${matches.length? matches.join('、'):'（なし）'}</div></div>
+      <div><div class="pill n">矛盾</div><div class="tiny">${conflicts.length? conflicts.join('、'):'（なし）'}</div></div>
+    </div>
+    <div class="tiny muted">系統：${anc.family? anc.family.ja+' / ':''}${anc.class? anc.class.ja+' / ':''}${anc.phylum? anc.phylum.ja : ''}</div>`);
+  }
+  ex.innerHTML = parts.join('<hr style="border:none;border-top:1px dashed rgba(255,255,255,.15);margin:8px 0">') || '<div class="tiny muted">回答が少ないため根拠を表示できません。</div>';
+}
+
+/* ===================== 主要ハンドラ ===================== */
+function resetAll(){
+  asked=[];
+  genusScores=new Map(dataset.genera.map((_,i)=>[i,0]));
+  familyScores=new Map(dataset.families.map((_,i)=>[i,0]));
+  classScores=new Map(dataset.classes.map((_,i)=>[i,0]));
+  phylumScores=new Map(dataset.phyla.map((_,i)=>[i,0]));
+  renderQuestion();
+  updateProgress();
+  document.getElementById('explain').innerHTML='';
+}
+function undo(){
+  if(!asked.length) return;
+  asked.pop();
+  // recompute
+  genusScores=new Map(dataset.genera.map((_,i)=>[i,0]));
+  familyScores=new Map(dataset.families.map((_,i)=>[i,0]));
+  classScores=new Map(dataset.classes.map((_,i)=>[i,0]));
+  phylumScores=new Map(dataset.phyla.map((_,i)=>[i,0]));
+  for(const a of asked) applyAnswer(a.key,a.answer,false);
+  renderQuestion();
+  updateProgress();
+}
+
+function init(withData){
+  dataset = mergeDatasets(BUILTIN_DATA, withData||{});
+  buildIndexes();
+  resetAll();
+}
+
+function loadJSON(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const obj = JSON.parse(e.target.result);
+      dataset = mergeDatasets(dataset, obj);
+      buildIndexes();
+      resetAll();
+      alert('データを読み込み、マージしました。候補数: ' + dataset.genera.length);
+    }catch(err){
+      alert('JSONの読み込みに失敗しました: ' + err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+/* ===================== 配線 ===================== */
+function wire(){
+  document.getElementById('btnYes').onclick = ()=>{ const key = document.getElementById('question').dataset.key; applyAnswer(key,'yes'); renderQuestion(); updateProgress(); };
+  document.getElementById('btnNo').onclick = ()=>{ const key = document.getElementById('question').dataset.key; applyAnswer(key,'no'); renderQuestion(); updateProgress(); };
+  document.getElementById('btnUnknown').onclick = ()=>{ const key = document.getElementById('question').dataset.key; applyAnswer(key,'unknown'); renderQuestion(); updateProgress(); };
+  document.getElementById('btnUndo').onclick = ()=> undo();
+  document.getElementById('btnRestart').onclick = ()=> resetAll();
+  document.getElementById('btnExplain').onclick = ()=> buildExplanation();
+  document.getElementById('btnExport').onclick = ()=>{
+    const genSorted=[...genusScores.entries()].sort((a,b)=>b[1]-a[1]).slice(0,20).map(([i,sc])=>({genus:dataset.genera[i].ja||dataset.genera[i].key, score:sc}));
+    const blob = new Blob([JSON.stringify({asked, genSorted}, null, 2)], {type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='animal_genus_result.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  document.getElementById('btnPrint').onclick = ()=> window.print();
+  document.getElementById('modeGenus').onclick = ()=>{ mode='genus'; setModeButtons(); renderLeaderboard(); };
+  document.getElementById('modeFamily').onclick = ()=>{ mode='family'; setModeButtons(); renderLeaderboard(); };
+  document.getElementById('modeClass').onclick = ()=>{ mode='class'; setModeButtons(); renderLeaderboard(); };
+  document.getElementById('modePhylum').onclick = ()=>{ mode='phylum'; setModeButtons(); renderLeaderboard(); };
+  document.getElementById('fileInput').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(f) loadJSON(f); e.target.value=''; });
+  window.addEventListener('keydown', (e)=>{
+    if(e.key==='y'||e.key==='Y') document.getElementById('btnYes').click();
+    if(e.key==='n'||e.key==='N') document.getElementById('btnNo').click();
+    if(e.key==='u'||e.key==='U') document.getElementById('btnUnknown').click();
+  });
+}
+function setModeButtons(){
+  for(const id of ['modeGenus','modeFamily','modeClass','modePhylum']) document.getElementById(id).classList.remove('active');
+  document.getElementById('mode'+(mode[0].toUpperCase()+mode.slice(1))).classList.add('active');
+}
+
+/* ===================== 起動 ===================== */
+window.addEventListener('DOMContentLoaded', ()=>{ wire(); init({}); });
+</script>
+</body>
+</html>

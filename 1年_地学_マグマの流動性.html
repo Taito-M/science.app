@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>はちみつ流下シミュレーター（穴あき山・2D断面）</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111723; --text:#e7f2ff; --muted:#8aa0b7; --accent:#f2c14e;
+    --accent2:#e5902c; --line:#2a2f3d; --ok:#3bd16f; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family: ui-sans-serif,system-ui,"Helvetica Neue",Arial; background:var(--bg); color:var(--text);}
+  header{padding:12px 16px; border-bottom:1px solid var(--line); background:linear-gradient(to right, #0b0f14, #0f1622); position:sticky; top:0; z-index:10;}
+  h1{font-size:18px; margin:0 0 6px 0; color:#eaf4ff}
+  .sub{font-size:12px; color:var(--muted)}
+  main{display:grid; grid-template-columns: 1fr 380px; gap:10px; padding:10px; height:calc(100vh - 76px);}
+  #stageWrap{background: #0e1520; border:1px solid var(--line); border-radius:14px; padding:10px; display:flex; flex-direction:column;}
+  canvas{flex:1 1 auto; width:100%; height:100%; background: radial-gradient(1200px 600px at 50% 10%, #122036 0%, #0e1520 60%, #0a1019 100%);
+         border-radius:10px; display:block;}
+  .controls{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px; overflow:auto;}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .row label{font-size:12px; color:var(--muted); min-width:160px;}
+  .row input[type="range"]{width:100%;}
+  .row .val{font-variant-numeric: tabular-nums; min-width:72px; text-align:right;}
+  .btns{display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;}
+  button{background:#1b2533; color:var(--text); border:1px solid #2a3441; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:600;}
+  button:hover{border-color:#3a4a61}
+  .primary{background:linear-gradient(180deg, #21314a, #1a2638); border-color:#3b4f6b}
+  .danger{background:#3a1f1f; border-color:#5a2a2a}
+  .ok{background:#1e3a2f; border-color:#2d5a45}
+  .preset{background:#2b2440; border-color:#4a3c7a}
+  .legend{font-size:12px; color:var(--muted); line-height:1.4; margin-top:6px}
+  footer{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--muted);}
+  .bullet{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle;}
+  .honey{background:var(--accent)}
+  .mount{background:#74869a}
+  .hole{background:#3a4a61}
+  kbd{background:#111a28; border:1px solid #2b3a50; padding:2px 6px; border-radius:6px; font-size:12px; color:#cfe3ff}
+  a{color:#9ed0ff}
+</style>
+</head>
+<body>
+<header>
+  <h1>はちみつ流下シミュレーター（穴あき山・2D断面・オフライン）</h1>
+  <div class="sub">中央の穴の底からはちみつを押し出し、粘性の高い流れが斜面を伝って落ちる様子を再現。吐出は <b>必ず空気中</b>（地形の上側）で行われ、岩体内にめり込みません。</div>
+</header>
+<main>
+  <section id="stageWrap">
+    <canvas id="sim" width="1100" height="650"></canvas>
+    <footer>
+      <div><span class="bullet honey"></span>はちみつ粒子 <span class="bullet mount"></span>山の斜面 <span class="bullet hole"></span>穴（クレーター）</div>
+      <div id="stats">FPS: -- | 粒子: 0</div>
+    </footer>
+  </section>
+  <aside class="controls">
+    <div class="row">
+      <label>押し出し速度（初速, px/s）</label>
+      <input id="inj" type="range" min="0" max="800" step="10" value="420" />
+      <div class="val" id="injVal">420</div>
+    </div>
+
+    <div class="row">
+      <label>山の傾斜（外側斜面の長さ）</label>
+      <input id="slope" type="range" min="0.50" max="2.00" step="0.01" value="1.00" />
+      <div class="val" id="slopeVal">1.00（急峻← →なだらか）</div>
+    </div>
+
+    <div class="row">
+      <label>粘性（空気抵抗）</label>
+      <input id="visc" type="range" min="0" max="1" step="0.01" value="0.20" />
+      <div class="val" id="viscVal">0.20</div>
+    </div>
+    <div class="row">
+      <label>斜面摩擦</label>
+      <input id="fric" type="range" min="0" max="1" step="0.01" value="0.35" />
+      <div class="val" id="fricVal">0.35</div>
+    </div>
+    <div class="row">
+      <label>重力の強さ</label>
+      <input id="grav" type="range" min="200" max="1500" step="10" value="900" />
+      <div class="val" id="gravVal">900</div>
+    </div>
+    <div class="row">
+      <label>押し出し量（粒/秒）</label>
+      <input id="rate" type="range" min="0" max="1000" step="10" value="300" />
+      <div class="val" id="rateVal">300</div>
+    </div>
+    <div class="row">
+      <label>粒子サイズ（px）</label>
+      <input id="rad" type="range" min="2" max="10" step="0.5" value="4" />
+      <div class="val" id="radVal">4.0</div>
+    </div>
+    <div class="row">
+      <label>最大粒子数</label>
+      <input id="maxp" type="range" min="200" max="6000" step="100" value="2400" />
+      <div class="val" id="maxpVal">2400</div>
+    </div>
+    <div class="row">
+      <label>粘着（止まりやすさ）</label>
+      <input id="stick" type="range" min="0" max="1" step="0.01" value="0.35" />
+      <div class="val" id="stickVal">0.35</div>
+    </div>
+    <div class="row">
+      <label>穴の直径</label>
+      <input id="hole" type="range" min="60" max="220" step="2" value="140" />
+      <div class="val" id="holeVal">140</div>
+    </div>
+    <div class="row">
+      <label>凝集（粒子間の引力）</label>
+      <input id="coh" type="range" min="0" max="2" step="0.01" value="0.90" />
+      <div class="val" id="cohVal">0.90</div>
+    </div>
+    <div class="btns">
+      <button id="toggle" class="primary">▶ 開始</button>
+      <button id="reset" class="danger">↺ リセット（停止）</button>
+      <button id="burst" class="ok">⏺ 一気に押し出す（1秒）</button>
+      <button id="presetLight" class="preset">さらさら</button>
+      <button id="presetGoo" class="preset">どろっと</button>
+    </div>
+    <div class="legend">
+      ・<kbd>スペース</kbd> でも開始／停止。<br/>
+      ・「山の傾斜」は外側斜面の<strong>水平距離</strong>を伸び縮みさせます（0.5=急峻、2.0=なだらか）。<br/>
+      ・吐出口は常に地形の上側（空気中）に補正されます。<br/>
+      ・「押し出し速度↑」で山頂を越えやすく、「凝集↑」「粘性↑」でどろっと固まりやすくなります。
+    </div>
+  </aside>
+</main>
+
+<script>
+(function(){
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+
+  const ui = {
+    inj:  document.getElementById('inj'),
+    slope:document.getElementById('slope'),
+    visc: document.getElementById('visc'),
+    fric: document.getElementById('fric'),
+    grav: document.getElementById('grav'),
+    rate: document.getElementById('rate'),
+    rad:  document.getElementById('rad'),
+    maxp: document.getElementById('maxp'),
+    stick:document.getElementById('stick'),
+    hole: document.getElementById('hole'),
+    coh:  document.getElementById('coh'),
+    injVal:  document.getElementById('injVal'),
+    slopeVal:document.getElementById('slopeVal'),
+    viscVal: document.getElementById('viscVal'),
+    fricVal: document.getElementById('fricVal'),
+    gravVal: document.getElementById('gravVal'),
+    rateVal: document.getElementById('rateVal'),
+    radVal:  document.getElementById('radVal'),
+    maxpVal: document.getElementById('maxpVal'),
+    stickVal:document.getElementById('stickVal'),
+    holeVal: document.getElementById('holeVal'),
+    cohVal: document.getElementById('cohVal'),
+    toggle: document.getElementById('toggle'),
+    reset: document.getElementById('reset'),
+    burst: document.getElementById('burst'),
+    presetLight: document.getElementById('presetLight'),
+    presetGoo: document.getElementById('presetGoo'),
+    stats: document.getElementById('stats')
+  };
+
+  function bindVal(input, out, fmt=(v)=>v){
+    const update=()=>{ out.textContent = fmt(input.value); };
+    input.addEventListener('input', update); update();
+  }
+  bindVal(ui.inj,   ui.injVal);
+  bindVal(ui.slope, ui.slopeVal, v=>Number(v).toFixed(2)+'（急峻← →なだらか）');
+  bindVal(ui.visc,  ui.viscVal, v=>Number(v).toFixed(2));
+  bindVal(ui.fric,  ui.fricVal, v=>Number(v).toFixed(2));
+  bindVal(ui.grav,  ui.gravVal);
+  bindVal(ui.rate,  ui.rateVal);
+  bindVal(ui.rad,   ui.radVal, v=>Number(v).toFixed(1));
+  bindVal(ui.maxp,  ui.maxpVal);
+  bindVal(ui.stick, ui.stickVal, v=>Number(v).toFixed(2));
+  bindVal(ui.hole,  ui.holeVal);
+  bindVal(ui.coh,   ui.cohVal,  v=>Number(v).toFixed(2));
+
+  // World / terrain parameters
+  let W = canvas.width, H = canvas.height;
+  let centerX = W * 0.5;
+  let baseY = H * 0.82;
+  let rimY = H * 0.36;
+  let innerBottomY = H * 0.54;
+  let leftBaseX, rightBaseX;
+  let rimLeftX, rimRightX, holeR = Number(ui.hole.value) / 2;
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  function updateGeometry(){
+    const s = Number(ui.slope.value);
+    holeR = Number(ui.hole.value) / 2;
+    rimLeftX = centerX - holeR;
+    rimRightX = centerX + holeR;
+    const origLeftBase  = W * 0.08;
+    const origRightBase = W * 0.92;
+    const leftCandidate  = rimLeftX  - s * (rimLeftX  - origLeftBase);
+    const rightCandidate = rimRightX + s * (origRightBase - rimRightX);
+    leftBaseX  = clamp(leftCandidate,  10, rimLeftX  - 20);
+    rightBaseX = clamp(rightCandidate, rimRightX + 20, W - 10);
+  }
+
+  ui.hole.addEventListener('input', updateGeometry);
+  ui.slope.addEventListener('input', updateGeometry);
+
+  function ySurf(x){
+    if (x <= leftBaseX) return baseY;
+    if (x >= rightBaseX) return baseY;
+
+    const slopeHeight = baseY - rimY;
+    if (x < rimLeftX){
+      const t = (x - leftBaseX) / (rimLeftX - leftBaseX);
+      return baseY - slopeHeight * easeInOut(t);
+    }
+    if (x < centerX){
+      const t = (x - rimLeftX) / (centerX - rimLeftX);
+      return rimY + (innerBottomY - rimY) * (t*t);
+    }
+    if (x < rimRightX){
+      const t = (rimRightX - x) / (rimRightX - centerX);
+      return rimY + (innerBottomY - rimY) * (t*t);
+    }
+    const t = (rightBaseX - x) / (rightBaseX - rimRightX);
+    return baseY - slopeHeight * easeInOut(t);
+  }
+
+  function dySurf(x){
+    const dx = 0.5;
+    const y1 = ySurf(x - dx);
+    const y2 = ySurf(x + dx);
+    return (y2 - y1) / (2*dx);
+  }
+
+  function easeInOut(t){
+    return t<0 ? 0 : t>1 ? 1 : (t<0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2);
+  }
+
+  // Particle system
+  const particles = [];
+  const staticParticles = [];
+  let running = false;
+  let last = performance.now();
+  let accum = 0;
+  let burstTimer = 0;
+
+  function setToggleUI(){
+    ui.toggle.textContent = running ? '⏸ 一時停止' : '▶ 開始';
+    ui.toggle.classList.toggle('primary', !running);
+  }
+
+  function reset(){
+    particles.length = 0;
+    staticParticles.length = 0;
+    last = performance.now();
+    running = false;
+    setToggleUI();
+  }
+
+  ui.reset.addEventListener('click', reset);
+  ui.toggle.addEventListener('click', ()=>{ running = !running; setToggleUI(); });
+  document.addEventListener('keydown', (e)=>{ if (e.code === 'Space'){ e.preventDefault(); ui.toggle.click(); } });
+  ui.burst.addEventListener('click', ()=>{ burstTimer = 1.0; });
+
+  function setVal(el, v){ el.value = v; el.dispatchEvent(new Event('input')); }
+  ui.presetLight.addEventListener('click', ()=>{
+    setVal(ui.inj, 650);
+    setVal(ui.slope, 1.10);
+    setVal(ui.visc, 0.08);
+    setVal(ui.fric, 0.12);
+    setVal(ui.stick,0.10);
+    setVal(ui.coh,  0.20);
+    setVal(ui.rate, 320);
+    setVal(ui.rad,  3.4);
+  });
+  ui.presetGoo.addEventListener('click', ()=>{
+    setVal(ui.inj, 300);
+    setVal(ui.slope, 0.90);
+    setVal(ui.visc, 0.30);
+    setVal(ui.fric, 0.58);
+    setVal(ui.stick,0.60);
+    setVal(ui.coh,  1.30);
+    setVal(ui.rate, 260);
+    setVal(ui.rad,  5.0);
+  });
+
+  function spawn(dt){
+    const rate = Number(ui.rate.value);
+    const maxp = Number(ui.maxp.value);
+    const R = Number(ui.rad.value);
+    const inj = Number(ui.inj.value);
+    const extra = burstTimer > 0 ? rate*3 : 0;
+    const toMake = Math.min(maxp - (particles.length+staticParticles.length), Math.floor((rate+extra)*dt));
+    const xmin = centerX - holeR*0.6, xmax = centerX + holeR*0.6;
+
+    for (let i=0; i<toMake; i++){
+      const x = xmin + Math.random()*(xmax - xmin);
+      const surfaceY = ySurf(x);
+      const y = Math.min(surfaceY - (R*2 + 4), innerBottomY - R*1.5); // 空気中に限定
+      const angleJitter = (Math.random()*0.6 - 0.3);
+      const v0 = inj * (0.85 + 0.3*Math.random());
+      const vx0 = v0 * Math.sin(angleJitter) * 0.4;
+      const vy0 = -v0 * Math.cos(angleJitter);
+      const p = { x, y, vx: vx0, vy: vy0, ax:0, ay:0, r:R, stuck:false };
+      particles.push(p);
+    }
+  }
+
+  function buildGrid(all){
+    const cell = Math.max(8, Number(ui.rad.value)*2.2);
+    const grid = new Map();
+    function key(ix,iy){ return ix + ',' + iy; }
+    for (let i=0; i<all.length; i++){
+      const p = all[i];
+      const ix = Math.floor(p.x / cell);
+      const iy = Math.floor(p.y / cell);
+      const k = key(ix,iy);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push({i, p, ix, iy});
+    }
+    return {grid, cell};
+  }
+
+  function neighborsFor(p, gridObj){
+    const {grid, cell} = gridObj;
+    const ix = Math.floor(p.x / cell), iy = Math.floor(p.y / cell);
+    const out = [];
+    for (let dx=-1; dx<=1; dx++){
+      for (let dy=-1; dy<=1; dy++){
+        const k = (ix+dx)+','+(iy+dy);
+        const arr = grid.get(k);
+        if (arr) out.push(...arr);
+      }
+    }
+    return out;
+  }
+
+  function terrainClamp(p){
+    const yS = ySurf(p.x);
+    if (p.y + p.r > yS){
+      const dydx = dySurf(p.x);
+      const Tlen = Math.hypot(1, dydx);
+      let Tx = 1 / Tlen, Ty = dydx / Tlen;
+      if (Ty < 0) { Tx = -Tx; Ty = -Ty; }
+      const Nx = -dydx / Tlen, Ny = 1 / Tlen;
+      p.y = yS - p.r;
+      const v_n = p.vx*Nx + p.vy*Ny;
+      if (v_n < 0){ // inward
+        p.vx -= Nx * v_n;
+        p.vy -= Ny * v_n;
+      }
+      const v_t = p.vx*Tx + p.vy*Ty;
+      const fric = Number(ui.fric.value);
+      p.vx = Tx * (v_t * (1 - Math.min(1, fric*0.5)));
+      p.vy = Ty * (v_t * (1 - Math.min(1, fric*0.5)));
+    }
+  }
+
+  function update(dt){
+    const grav = Number(ui.grav.value);
+    const visc = Number(ui.visc.value);
+    const fric = Number(ui.fric.value);
+    const stick = Number(ui.stick.value);
+    const cohesion = Number(ui.coh.value);
+
+    spawn(dt);
+    if (burstTimer > 0){ burstTimer -= dt; if (burstTimer<0) burstTimer = 0; }
+
+    const all = particles.concat(staticParticles);
+    const gridObj = buildGrid(all);
+
+    for (let i=0; i<particles.length; i++){
+      const p = particles[i];
+      const R = p.r;
+
+      p.ay += grav;
+      p.vx += p.ax * dt; p.vy += p.ay * dt;
+      p.vx *= (1 - visc*dt);
+      p.vy *= (1 - visc*dt);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.ax = 0; p.ay = 0;
+
+      if (p.x < (leftBaseX||0)+R) { p.x = (leftBaseX||0)+R; p.vx *= -0.2; }
+      if (p.x > (rightBaseX||W)-R){ p.x = (rightBaseX||W)-R; p.vx *= -0.2; }
+      if (p.y > baseY+200){
+        p.stuck = true; p.vx=0; p.vy=0;
+        staticParticles.push(p);
+        particles.splice(i,1); i--; continue;
+      }
+
+      const yS = ySurf(p.x);
+      if (p.y + R > yS){
+        const dydx = dySurf(p.x);
+        const Tlen = Math.hypot(1, dydx);
+        let Tx = 1 / Tlen, Ty = dydx / Tlen;
+        if (Ty < 0) { Tx = -Tx; Ty = -Ty; }
+        const Nx = -dydx / Tlen, Ny = 1 / Tlen;
+
+        p.y = yS - R;
+        const v_t = p.vx*Tx + p.vy*Ty;
+        p.vx = Tx * (v_t * (1 - fric*dt));
+        p.vy = Ty * (v_t * (1 - fric*dt));
+
+        const g_t = (grav*Ty);
+        p.vx += Tx * (g_t * dt);
+        p.vy += Ty * (g_t * dt);
+
+        const speed = Math.hypot(p.vx, p.vy);
+        const slope = Math.abs(dydx);
+        const threshold = 18 + 120*stick;
+        if (speed < threshold && slope < 2.8){
+          p.stuck = true; p.vx=0; p.vy=0;
+          staticParticles.push(p);
+          particles.splice(i,1); i--; continue;
+        }
+      }
+    }
+
+    // Particle-particle interactions
+    for (let i=0; i<all.length; i++){
+      const a = all[i];
+      const neigh = neighborsFor(a, gridObj);
+      let checks = 0;
+      for (let k=0; k<neigh.length; k++){
+        const j = neigh[k].i;
+        if (j === i) continue;
+        const b = all[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.hypot(dx,dy);
+        const minDist = a.r + b.r - 0.1;
+        if (dist <= 0) continue;
+        const nx = dx/dist, ny = dy/dist;
+
+        if (dist < minDist){
+          const overlap = (minDist - dist);
+          const wa = a.stuck ? 0.15 : 0.5;
+          const wb = b.stuck ? 0.15 : 0.5;
+          a.x -= nx * overlap * wa;
+          a.y -= ny * overlap * wa;
+          b.x += nx * overlap * wb;
+          b.y += ny * overlap * wb;
+        } else {
+          const avgR = 0.5*(a.r + b.r);
+          const range = avgR * 6.0;
+          if (dist < range){
+            const t = (dist - minDist) / (range - minDist);
+            const pull = Math.max(0, 1 - t);
+            const K = 60;
+            const impulse = cohesion * K * pull * dt;
+            if (!a.stuck){ a.vx += nx * impulse; a.vy += ny * impulse; }
+            if (!b.stuck){ b.vx -= nx * impulse; b.vy -= ny * impulse; }
+          }
+        }
+
+        const damping = 0.35 + 0.25*cohesion;
+        if (!a.stuck || !b.stuck){
+          const avx = (a.vx||0), avy = (a.vy||0);
+          const bvx = (b.vx||0), bvy = (b.vy||0);
+          const rvx = bvx - avx, rvy = bvy - avy;
+          const relN = rvx*nx + rvy*ny;
+          if (relN > 0){
+            const imp = relN * damping * dt * 8;
+            if (!a.stuck){ a.vx += nx*imp; a.vy += ny*imp; }
+            if (!b.stuck){ b.vx -= nx*imp; b.vy -= ny*imp; }
+          }
+        }
+
+        checks++; if (checks>18) break;
+      }
+    }
+
+    for (let i=0; i<particles.length; i++) terrainClamp(particles[i]);
+    for (let i=0; i<staticParticles.length; i++) terrainClamp(staticParticles[i]);
+  }
+
+  function drawTerrain(){
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(leftBaseX, baseY);
+    for (let x=leftBaseX; x<=rimLeftX; x+=4){ ctx.lineTo(x, ySurf(x)); }
+    for (let x=rimLeftX; x<=centerX; x+=4){ ctx.lineTo(x, ySurf(x)); }
+    for (let x=centerX; x<=rimRightX; x+=4){ ctx.lineTo(x, ySurf(x)); }
+    for (let x=rimRightX; x<=rightBaseX; x+=4){ ctx.lineTo(x, ySurf(x)); }
+    ctx.lineTo(rightBaseX, baseY);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(0, rimY, 0, baseY+80);
+    grd.addColorStop(0, '#5b6c80'); grd.addColorStop(1, '#2a3441');
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.strokeStyle = 'rgba(240,250,255,0.15)'; ctx.stroke();
+
+    ctx.beginPath();
+    for (let x=rimLeftX; x<=rimRightX; x+=2){
+      const y = ySurf(x);
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + 12 + Math.abs(x-centerX)*0.05);
+    }
+    ctx.strokeStyle = 'rgba(80,110,150,0.28)';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, baseY+0.5); ctx.lineTo(W, baseY+0.5);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawParticles(){
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+    function drawList(list, fill){
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      for (let i=0; i<list.length; i++){
+        const p = list[i];
+        ctx.moveTo(p.x+p.r, p.y);
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      }
+      ctx.fill();
+    }
+    drawList(particles, '#f2c14e');
+    drawList(staticParticles, '#e3a93b');
+    ctx.restore();
+  }
+
+  function drawOverlay(){
+    const R = Number(ui.rad.value);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '12px ui-sans-serif, system-ui, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('押し出し口（空気側のみ）', centerX, innerBottomY - 10 - 8);
+    ctx.beginPath();
+    ctx.arc(centerX, innerBottomY - R*1.5, 3.5, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function loop(now){
+    const dt_raw = Math.min(0.05, (now - last)/1000);
+    last = now;
+    if (running){
+      let dt = dt_raw;
+      const step = 1/120;
+      while (dt > 0){
+        const h = Math.min(step, dt);
+        update(h);
+        dt -= h;
+      }
+    }
+    ctx.clearRect(0,0,W,H);
+    drawTerrain();
+    drawParticles();
+    drawOverlay();
+
+    accum = accum*0.9 + (1000/Math.max(1, now-last+1))*0.1;
+    const count = particles.length + staticParticles.length;
+    ui.stats.textContent = `FPS: ${accum.toFixed(0)} | 粒子: ${count}`;
+
+    requestAnimationFrame(loop);
+  }
+
+  function onResize(){
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.floor(rect.width), h = Math.floor(rect.height);
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(w * ratio);
+    canvas.height = Math.floor(h * ratio);
+    ctx.setTransform(ratio,0,0,ratio,0,0);
+    W = w; H = h;
+    centerX = W * 0.5;
+    baseY = H * 0.82;
+    rimY = H * 0.36;
+    innerBottomY = H * 0.54;
+    updateGeometry();
+  }
+
+  // Initialize geometry and UI, then start render loop
+  onResize();
+  window.addEventListener('resize', onResize);
+  running = false;
+  setToggleUI();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

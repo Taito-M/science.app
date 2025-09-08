@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沈み込み帯：引き込み→反発（地震）モデル</title>
+<style>
+  :root{
+    --ink:#111827;
+    --muted:#6b7280;
+    --land:#5a4532;
+    --slab:#7ea03f;
+    --water:#a6d9ff;
+    --accent:#2563eb;
+    --danger:#d22c2c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; color:var(--ink); font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif; background:#fff}
+  header{padding:10px 14px 0}
+  header h1{margin:0; font-size:18px}
+  header p{margin:4px 0 8px; color:var(--muted); font-size:12px}
+  .wrap{display:grid; grid-template-columns:1fr 330px; gap:12px; padding:10px 14px 16px}
+  #stage{border:1px solid #d1d5db; border-radius:10px; overflow:hidden; background:#ffffff}
+  canvas{display:block; width:100%; height:100%}
+  .panel{border:1px solid #d1d5db; border-radius:10px; padding:12px}
+  .panel h2{margin:0 0 8px 0; font-size:16px}
+  .ctrl{margin:10px 0 12px}
+  .ctrl label{display:flex; justify-content:space-between; font-size:12px; color:var(--muted)}
+  input[type=range]{width:100%}
+  .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  button{appearance:none; border:1px solid #d1d5db; background:#fff; padding:7px 10px; border-radius:8px; cursor:pointer}
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .badge{display:inline-flex; align-items:center; gap:6px; padding:2px 6px; border:1px solid #d1d5db; border-radius:999px; font-size:11px}
+  .note{font-size:11px; color:var(--muted)}
+  .state{font-weight:700}
+</style>
+</head>
+<body>
+<header>
+  <h1>沈み込み帯：陸側プレートの引き込み → 反発（地震）モデル</h1>
+  <p>太平洋プレートが<b>左下</b>へ沈み込み、<b>境界がロック</b>している間は陸側プレート（左側）が<b>海溝へ引き込まれて沈降</b>。しきい値に達すると<b>反発</b>して元に戻り、そのとき<b>地震</b>が発生します。</p>
+</header>
+<div class="wrap">
+  <div id="stage">
+    <canvas id="cv" width="1000" height="560"></canvas>
+  </div>
+  <div class="panel">
+    <h2>操作</h2>
+    <div class="ctrl">
+      <label>沈み込み角（度） <span id="angV">15°</span></label>
+      <input id="ang" type="range" min="5" max="30" step="0.5" value="15">
+    </div>
+    <div class="ctrl">
+      <label>進行速度（相対） <span id="spdV">1.0x</span></label>
+      <input id="spd" type="range" min="0" max="3" step="0.01" value="1.0">
+    </div>
+    <div class="ctrl">
+      <label>ロック強さ（歪みの溜まりやすさ） <span id="lockV">0.60</span></label>
+      <input id="lock" type="range" min="0" max="1" step="0.01" value="0.60">
+    </div>
+    <div class="ctrl">
+      <label>解放しきい値 <span id="thrV">120</span></label>
+      <input id="thr" type="range" min="40" max="240" step="1" value="120">
+      <div class="note">この値に達すると「反発（地震）」が起こり、引き込まれた分が一気に戻ります。</div>
+    </div>
+    <div class="ctrl">
+      <div class="row">
+        <label class="badge"><input id="vectors" type="checkbox" checked> 矢印（沈み込み）</label>
+        <label class="badge"><input id="gps" type="checkbox" checked> 地上GPSベクトル</label>
+        <label class="badge"><input id="labels" type="checkbox" checked> ラベル</label>
+      </div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="toggle" class="primary">▶ 再生</button>
+      <button id="step">1日進める</button>
+      <button id="reset">リセット</button>
+    </div>
+    <div class="note" style="margin-top:8px">
+      状態：<span id="state" class="state">ロック中（歪み蓄積）</span> ｜ 震源記録：<span id="count">0</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const trenchX = W*0.58;
+  const surfaceY = H*0.36;
+  const mantleY = H*0.885;
+
+  // UI
+  const angEl = document.getElementById('ang');
+  const spdEl = document.getElementById('spd');
+  const lockEl = document.getElementById('lock');
+  const thrEl = document.getElementById('thr');
+  const angV = document.getElementById('angV');
+  const spdV = document.getElementById('spdV');
+  const lockV = document.getElementById('lockV');
+  const thrV = document.getElementById('thrV');
+  const vectorsEl = document.getElementById('vectors');
+  const gpsEl = document.getElementById('gps');
+  const labelsEl = document.getElementById('labels');
+  const toggleBtn = document.getElementById('toggle');
+  const stepBtn = document.getElementById('step');
+  const resetBtn = document.getElementById('reset');
+  const stateEl = document.getElementById('state');
+  const countEl = document.getElementById('count');
+
+  // dynamics
+  let t = 0, running = false, conveyor = 0;
+  let stress = 0;           // 歪み蓄積
+  let phase = 'lock';       // 'lock' or 'slip'
+  let slipTime = 0;         // すべり経過
+  const quakes = [];        // {x,y,t}
+
+  function reset(){
+    t = 0; conveyor = 0; stress = 0; phase = 'lock'; slipTime = 0;
+    quakes.length = 0; running = false; toggleBtn.textContent = '▶ 再生';
+  }
+
+  function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
+
+  function draw(){
+    const ang = +angEl.value * Math.PI/180;
+    const spd = +spdEl.value;
+    const lock = +lockEl.value;
+    const thr = +thrEl.value;
+    angV.textContent = (ang*180/Math.PI).toFixed(0)+'°';
+    spdV.textContent = spd.toFixed(2)+'x';
+    lockV.textContent = lock.toFixed(2);
+    thrV.textContent = thr.toFixed(0);
+
+    // time advance
+    if (running){
+      t += 0.2*(0.5+spd);
+      conveyor += 0.8*spd;
+      if (phase === 'lock'){
+        stress += (0.6 + lock*1.6) * spd; // 蓄積
+        if (stress >= thr){
+          // release
+          phase = 'slip'; slipTime = 0;
+          const qx = trenchX - Math.cos(ang)*60;
+          const qy = surfaceY + Math.sin(ang)*60;
+          quakes.push({x: qx, y: qy, t});
+        }
+      } else if (phase === 'slip'){
+        slipTime += 1.2 + spd*0.8;
+        if (slipTime > 50){ // 終了
+          phase = 'lock';
+          stress = 0; // リセット
+        }
+      }
+    }
+
+    stateEl.textContent = phase === 'lock' ? 'ロック中（歪み蓄積）' : 'すべり（地震）→ 回復';
+    countEl.textContent = quakes.length;
+
+    // background
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = getCss('--water'); ctx.fillRect(0,0,W,surfaceY);
+    ctx.fillStyle = '#e5e7eb'; ctx.fillRect(0,mantleY,W,H-mantleY);
+
+    // interface points (down-left)
+    const ix0 = trenchX, iy0 = surfaceY;
+    const ix1 = trenchX - (mantleY - surfaceY)/Math.tan(ang), iy1 = mantleY;
+
+    // oceanic slab wedge (right)
+    ctx.fillStyle = getCss('--slab');
+    ctx.beginPath();
+    ctx.moveTo(ix0, iy0);
+    ctx.lineTo(W, surfaceY+16);
+    ctx.lineTo(W, H);
+    ctx.lineTo(ix1, iy1);
+    ctx.closePath();
+    ctx.fill();
+
+    // motion stripes along slab (left-down)
+    ctx.save();
+    ctx.clip();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    const step = 24;
+    for (let k=-100; k<120; k++){
+      const s = (k*step + (conveyor%step));
+      const px = ix0 - s*Math.cos(ang);
+      const py = iy0 + s*Math.sin(ang);
+      ctx.beginPath();
+      ctx.moveTo(px,py);
+      ctx.lineTo(px-38*Math.sin(ang), py+38*Math.cos(ang));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // ----- Overriding plate shape with elastic drag -----
+    // surface baseline
+    const baseY = surfaceY - 12;
+    // strain amount (0..1+) : proportional to stress / thr, but during slip it decays
+    let strain = Math.min(1.0, stress / Math.max(1, +thrEl.value));
+    if (phase === 'slip'){
+      const k = easeOutCubic(Math.min(1, slipTime/50));
+      strain = (1-k) * Math.min(1.0, (thr/Math.max(1,thr))); // go back to 0
+    }
+    // amplitudes
+    const ampY = 30 * strain;  // downwarp
+    const ampX = 18 * strain;  // trenchward drag
+    const L = 200;             // decay scale toward内陸
+
+    // build top polyline with deformation
+    const n = 14;
+    const topPts = [];
+    for (let i=0;i<=n;i++){
+      const x = i/n * (trenchX-2);
+      const w = Math.exp(-(trenchX - x)/L);
+      const dx = ampX * w;
+      const dy = ampY * w; // down (+)
+      topPts.push({x: x + dx, y: baseY + dy});
+    }
+
+    // draw overriding plate polygon: top polyline -> trench apex -> ix1,iy1 -> left-bottom -> close
+    ctx.fillStyle = getCss('--land');
+    ctx.beginPath();
+    ctx.moveTo(topPts[0].x, topPts[0].y);
+    for (let i=1;i<topPts.length;i++) ctx.lineTo(topPts[i].x, topPts[i].y);
+    // link to trench point
+    ctx.lineTo(ix0, iy0);
+    ctx.lineTo(ix1, iy1);
+    ctx.lineTo(0, mantleY-34);
+    ctx.closePath();
+    ctx.fill();
+
+    // ground strip (for crisp edge near inland)
+    ctx.fillStyle = '#6b4f3a';
+    ctx.fillRect(0, baseY, trenchX-2, 12);
+
+    // tiny city drawn on deformed surface at ~x=50
+    drawCityOnSurface(50);
+
+    // trench marker line
+    ctx.strokeStyle = '#6b7280';
+    ctx.beginPath(); ctx.moveTo(trenchX,0); ctx.lineTo(trenchX,surfaceY); ctx.stroke();
+
+    // slab vectors
+    if (vectorsEl.checked){
+      for (let s=40; s<300; s+=60){
+        const bx = ix0 - Math.cos(ang)*s;
+        const by = iy0 + Math.sin(ang)*s;
+        drawArrow(bx,by, -Math.cos(ang)*28, +Math.sin(ang)*28, '#ffffff');
+      }
+    }
+
+    // GPS ground vectors (inland surface points move toward trench when locked; reverse on slip)
+    if (gpsEl.checked){
+      for (let i=2;i<=10;i+=2){
+        const p = topPts[i];
+        // vector: toward trench when lock, opposite when slip
+        const dir = (phase==='lock') ? 1 : -1.2;
+        drawArrow(p.x, p.y-8, dir*10, (phase==='lock'? 3 : -3), '#111827');
+      }
+    }
+
+    // labels
+    if (labelsEl.checked){
+      drawBox('陸側のプレート', 26, baseY-44);
+      drawBox('太平洋プレート', trenchX+120, surfaceY+44);
+      drawBox('日本海溝', trenchX-16, surfaceY-42);
+      drawBox('沈み込み', trenchX+40, surfaceY+10);
+    }
+
+    // quakes (show star at trench during slip start; persist then fade slowly)
+    for (let i=quakes.length-1; i>=0; i--){
+      const q = quakes[i];
+      const age = t - q.t;
+      const alpha = Math.max(0, 1 - age/300);
+      const r = 12 + Math.min(8, age*0.06);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      drawStar(q.x,q.y,r,getCss('--danger'));
+      ctx.restore();
+      if (alpha <= 0) quakes.splice(i,1);
+    }
+
+    requestAnimationFrame(draw);
+
+    // helper: draw small city on current surface y at given inland x0
+    function drawCityOnSurface(x0){
+      // find nearest poly point
+      let best = topPts[0];
+      for (const p of topPts) if (Math.abs(p.x-x0) < Math.abs(best.x-x0)) best = p;
+      const x = best.x, y = best.y;
+      ctx.save();
+      ctx.fillStyle = '#2a7d2a'; ctx.beginPath(); ctx.arc(x+18,y-2,8,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#6b4f3a'; ctx.fillRect(x+16,y-2,4,12);
+      ctx.fillStyle = '#cfd8e3'; ctx.fillRect(x-16, y-12, 12, 12);
+      ctx.fillStyle = '#9aa8bf'; ctx.beginPath(); ctx.moveTo(x-18, y-12); ctx.lineTo(x-10, y-19); ctx.lineTo(x-4, y-12); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // helpers
+  function getCss(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
+  function drawArrow(x,y,dx,dy,color){
+    const a=Math.atan2(dy,dx), L=Math.hypot(dx,dy);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+    ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(L-8,0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L,0); ctx.lineTo(L-10,4); ctx.lineTo(L-10,-4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  function drawStar(x,y,r,c){
+    ctx.save(); ctx.translate(x,y); ctx.fillStyle=c;
+    ctx.beginPath();
+    for (let i=0;i<16;i++){ const rr=(i%2? r*0.45:r), a=i*Math.PI/8; ctx.lineTo(Math.cos(a)*rr, Math.sin(a)*rr); }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  function drawBox(text,x,y){
+    ctx.font='13px system-ui,sans-serif';
+    const pad=6, w=ctx.measureText(text).width+pad*2;
+    ctx.fillStyle='#fff'; ctx.fillRect(x-1,y-14,w,20);
+    ctx.strokeStyle=getCss('--ink'); ctx.strokeRect(x-1,y-14,w,20);
+    ctx.fillStyle=getCss('--ink'); ctx.fillText(text,x+pad-2,y+2);
+  }
+
+  // UI events
+  toggleBtn.addEventListener('click', ()=>{ running=!running; toggleBtn.textContent = running ? '⏸ 一時停止' : '▶ 再生'; });
+  stepBtn.addEventListener('click', ()=>{ t += 1; stress += 1; });
+  resetBtn.addEventListener('click', reset);
+
+  reset();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

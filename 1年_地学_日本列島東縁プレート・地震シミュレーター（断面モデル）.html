@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>日本列島東縁プレート・地震シミュレーター（断面モデル）</title>
+<style>
+  :root{
+    --bg:#0b1220;          /* 背景（夜空） */
+    --panel:#101827;       /* コントロール背景 */
+    --ink:#e5e7eb;         /* 文字色 */
+    --muted:#9ca3af;       /* 補助文字 */
+    --accent:#60a5fa;      /* 強調 */
+    --ok:#34d399;          /* OK */
+    --warn:#f59e0b;        /* 注意 */
+    --danger:#f87171;      /* 危険 */
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, sans-serif;
+    display:flex; flex-direction:column; gap:12px;
+  }
+  header{
+    padding:12px 16px; border-bottom:1px solid #1f2937; background:linear-gradient(180deg,#0b1220,#0f172a);
+  }
+  header h1{font-size:20px; margin:0 0 4px 0}
+  header p{margin:0; color:var(--muted); font-size:14px}
+
+  .wrap{display:grid; grid-template-columns: 330px 1fr; gap:12px; padding:0 12px 12px 12px;}
+  @media (max-width: 920px){ .wrap{grid-template-columns:1fr;}}
+
+  .panel{
+    background:var(--panel); border:1px solid #1f2937; border-radius:12px; padding:12px;
+    box-shadow:0 10px 18px rgba(0,0,0,0.25) inset, 0 2px 12px rgba(0,0,0,0.15);
+  }
+  .panel h2{font-size:16px; margin:4px 0 8px 0}
+  .row{display:grid; grid-template-columns:120px 1fr 60px; gap:8px; align-items:center; margin:8px 0}
+  .row label{color:var(--muted); font-size:13px}
+  .row input[type="range"]{width:100%}
+  .row .val{font-variant-numeric:tabular-nums; text-align:right}
+  .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:6px}
+  button{
+    appearance:none; border:none; border-radius:10px; padding:8px 12px; color:#0b1220; background:var(--ink);
+    cursor:pointer; font-weight:600; box-shadow:0 1px 0 rgba(255,255,255,0.05) inset;
+  }
+  button.secondary{background:#374151; color:#e5e7eb}
+  button.warn{background:var(--warn);}
+  button.danger{background:var(--danger);}
+  button:disabled{opacity:.55; cursor:not-allowed}
+
+  canvas{width:100%; height:100%; display:block; background:#0b1220; border:1px solid #1f2937; border-radius:12px}
+  .legend{display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px}
+  .chip{display:inline-flex; align-items:center; gap:6px}
+  .dot{width:12px; height:12px; border-radius:50%}
+
+  .log{
+    background:#0d1424; border:1px solid #1f2937; border-radius:12px; padding:8px; height:180px; overflow:auto;
+    font-size:12px; white-space:pre-wrap;
+  }
+  .small{font-size:12px; color:var(--muted)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>日本列島東縁プレート・地震シミュレーター（断面モデル）</h1>
+    <p>教育用の概念モデルです。太平洋プレートが日本海溝で沈み込む様子と、インターフェース地震（海溝型）・スラブ内地震（深発）・アウターライズ地震（正断層）を簡易に可視化します。</p>
+  </header>
+
+  <div class="wrap">
+    <!-- Control Panel -->
+    <section class="panel" id="controls">
+      <h2>コントロール</h2>
+      <div class="row"><label>収束速度 v</label>
+        <input id="vel" type="range" min="2" max="12" step="0.1" value="9" />
+        <div class="val"><span id="velVal">9.0</span> cm/年</div>
+      </div>
+      <div class="row"><label>固着率（ロック）</label>
+        <input id="lock" type="range" min="0" max="100" step="1" value="70" />
+        <div class="val"><span id="lockVal">70</span>%</div>
+      </div>
+      <div class="row"><label>時間倍率</label>
+        <input id="timescale" type="range" min="1" max="200" step="1" value="40" />
+        <div class="val"><span id="timescaleVal">40</span> 年/秒</div>
+      </div>
+      <div class="row"><label>スラブ角</label>
+        <input id="angle" type="range" min="8" max="35" step="1" value="15" />
+        <div class="val"><span id="angleVal">15</span> °</div>
+      </div>
+      <div class="row"><label>断層しきい値</label>
+        <input id="thresh" type="range" min="0.2" max="2.0" step="0.1" value="1.0" />
+        <div class="val"><span id="threshVal">1.0</span> m（概念）</div>
+      </div>
+
+      <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+        <label><input id="showMega" type="checkbox" checked /> インターフェース</label>
+        <label><input id="showSlab" type="checkbox" checked /> スラブ内</label>
+        <label><input id="showOuter" type="checkbox" checked /> アウターライズ</label>
+      </div>
+
+      <div class="btns">
+        <button id="play">▶ 再生</button>
+        <button id="pause" class="secondary" disabled>⏸ 停止</button>
+        <button id="step" class="secondary">⏭ 1年進める</button>
+        <button id="reset" class="warn">↺ リセット</button>
+        <button id="scenario" class="danger">M9 シナリオ</button>
+        <button id="save" class="secondary">PNG保存</button>
+        <button id="download" class="secondary">このページを保存</button>
+      </div>
+
+      <h2 style="margin-top:14px">イベントログ</h2>
+      <div id="log" class="log" aria-live="polite"></div>
+      <p class="small">※数値は概念スケールです。実データに基づく正確な予測を意図しません。</p>
+    </section>
+
+    <!-- Canvas + Legend -->
+    <section class="panel">
+      <canvas id="cv" width="1200" height="700" aria-label="断面図シミュレーション"></canvas>
+      <div class="legend">
+        <span class="chip"><span class="dot" style="background:#1e40af"></span>海水</span>
+        <span class="chip"><span class="dot" style="background:#0ea5e9"></span>太平洋プレート（上面）</span>
+        <span class="chip"><span class="dot" style="background:#10b981"></span>大陸プレート（日本列島側）</span>
+        <span class="chip"><span class="dot" style="background:#f59e0b"></span>インターフェース地震</span>
+        <span class="chip"><span class="dot" style="background:#a78bfa"></span>スラブ内（深発）</span>
+        <span class="chip"><span class="dot" style="background:#f97316"></span>アウターライズ</span>
+      </div>
+    </section>
+  </div>
+
+<script>
+(function(){
+  // ====== 基本設定 ======
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  function resizeCanvas(){
+    const rect = cv.getBoundingClientRect();
+    cv.width = Math.floor(rect.width * dpr);
+    cv.height = Math.floor((rect.width*0.58) * dpr); // 横:縦 ≒ 1:0.58
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // UI 参照
+  const ui = {
+    vel: document.getElementById('vel'), velVal: document.getElementById('velVal'),
+    lock: document.getElementById('lock'), lockVal: document.getElementById('lockVal'),
+    timescale: document.getElementById('timescale'), timescaleVal: document.getElementById('timescaleVal'),
+    angle: document.getElementById('angle'), angleVal: document.getElementById('angleVal'),
+    thresh: document.getElementById('thresh'), threshVal: document.getElementById('threshVal'),
+    showMega: document.getElementById('showMega'),
+    showSlab: document.getElementById('showSlab'),
+    showOuter: document.getElementById('showOuter'),
+    play: document.getElementById('play'), pause: document.getElementById('pause'), step: document.getElementById('step'), reset: document.getElementById('reset'), scenario: document.getElementById('scenario'),
+    save: document.getElementById('save'), download: document.getElementById('download'),
+    log: document.getElementById('log'),
+  };
+
+  const state = {
+    running:false,
+    tYear:0,            // 経過年
+    segN: 36,           // インターフェースの離散化（区間数）
+    slipDef:[],         // 区間ごとの蓄積すべり量（m）
+    threshBase:1.0,     // 基本しきい値（m 概念値）
+    lastFrameTime: performance.now(),
+    eqs: [],            // 可視化用地震パーティクル
+  };
+
+  function init(){
+    state.slipDef = new Array(state.segN).fill(0);
+    state.eqs.length = 0;
+    state.tYear = 0;
+    ui.log.textContent = '';
+  }
+  init();
+
+  // ====== 座標系と幾何 ======
+  function P(x,y){ return {x,y}; }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+
+  // キャンバスの座標→「地質断面」の意味づけ
+  function geom(){
+    const W = cv.width, H = cv.height;
+    const trenchX = Math.floor(W*0.32);
+    const coastX  = Math.floor(W*0.55);
+    const arcX    = Math.floor(W*0.70);
+    const seaLevel= Math.floor(H*0.14);
+    const baseY   = Math.floor(H*0.92);
+    const angle = +ui.angle.value * Math.PI/180; // ラジアン
+    // スラブ直線：海溝（trenchX, seaLevel+20）を通り、角度 angle で沈み込む直線
+    const slabStart = P(trenchX, seaLevel+20*dpr);
+    const slabLen = H*1.2; // 長めに確保
+    const slabEnd = P(trenchX + Math.cos(angle)*slabLen, slabStart.y + Math.sin(angle)*slabLen);
+    return {W,H,trenchX,coastX,arcX,seaLevel,baseY,angle, slabStart, slabEnd};
+  }
+
+  // ====== 描画ユーティリティ ======
+  function clear(){ ctx.clearRect(0,0,cv.width,cv.height); }
+  function drawSea(g){
+    const {W, seaLevel, trenchX} = g;
+    // 海水
+    const grd = ctx.createLinearGradient(0,0,0,seaLevel+120*dpr);
+    grd.addColorStop(0,'#0b3a7a');
+    grd.addColorStop(1,'#1e40af');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0,0,W,seaLevel+120*dpr);
+    // 表面波っぽい装飾
+    ctx.globalAlpha = 0.15;
+    for(let i=0;i<8;i++){
+      ctx.beginPath();
+      const y = seaLevel + Math.sin((state.tYear*0.3+i)*0.8)*6*dpr + i*4*dpr;
+      ctx.moveTo(0,y);
+      for(let x=0;x<W;x+=10*dpr){ ctx.lineTo(x,y + Math.sin((x*0.01+i)*0.7)*2*dpr); }
+      ctx.strokeStyle='#93c5fd'; ctx.lineWidth=1*dpr; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawCrust(g){
+    const {W,H,seaLevel,baseY,trenchX,coastX,arcX,angle, slabStart, slabEnd} = g;
+    // 海底（左）から陸（右）の上面ライン
+    const top = new Path2D();
+    top.moveTo(0, seaLevel+60*dpr);
+    top.lineTo(trenchX, seaLevel+40*dpr);
+    top.lineTo(coastX, seaLevel+20*dpr);
+    top.lineTo(W, seaLevel+30*dpr);
+
+    // 大陸プレート塗り（上盤）
+    ctx.fillStyle = '#082f26';
+    ctx.fillRect(0, seaLevel+40*dpr, W, baseY-(seaLevel+40*dpr));
+
+    // 太平洋プレート（上面の薄い層）
+    ctx.save();
+    ctx.strokeStyle = '#0ea5e9';
+    ctx.lineWidth = 14*dpr;
+    ctx.beginPath();
+    ctx.moveTo(slabStart.x, slabStart.y);
+    ctx.lineTo(slabEnd.x, slabEnd.y);
+    ctx.stroke();
+    ctx.restore();
+
+    // スラブ下のマントル表現
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#0a684d';
+    ctx.lineWidth = 180*dpr;
+    ctx.beginPath();
+    ctx.moveTo(slabStart.x, slabStart.y+60*dpr);
+    ctx.lineTo(slabEnd.x, slabEnd.y+60*dpr);
+    ctx.stroke();
+    ctx.restore();
+
+    // 陸側（上盤）を緑で薄く
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath();
+    ctx.moveTo(coastX, seaLevel+20*dpr);
+    ctx.lineTo(W, seaLevel+30*dpr);
+    ctx.lineTo(W, baseY);
+    ctx.lineTo(coastX-40*dpr, baseY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // ラベル
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = `${14*dpr}px system-ui, sans-serif`;
+    ctx.fillText('日本海溝（トレンチ）', trenchX-80*dpr, seaLevel+18*dpr);
+    ctx.fillText('海洋プレート（太平洋）', trenchX+10*dpr, seaLevel+60*dpr);
+    ctx.fillText('上盤（日本列島側）', (coastX+W)/2-40*dpr, seaLevel+40*dpr);
+
+    // 火山フロント（概念）
+    ctx.save();
+    ctx.translate(g.arcX, seaLevel+16*dpr);
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(16*dpr, 28*dpr);
+    ctx.lineTo(-16*dpr, 28*dpr);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillText('火山フロント', g.arcX-24*dpr, seaLevel+64*dpr);
+
+    // 移動ベクトル（プレート収束）
+    ctx.strokeStyle = '#60a5fa';
+    ctx.fillStyle = '#60a5fa';
+    const ax = trenchX-120*dpr, ay = seaLevel+80*dpr;
+    drawArrow(ax, ay, ax+60*dpr, ay, 2.5*dpr);
+    ctx.fillText('→ 約 ' + (+ui.vel.value).toFixed(1) + ' cm/年', ax-6*dpr, ay-10*dpr);
+
+    // インターフェースライン（震源帯）
+    ctx.save();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.setLineDash([8*dpr, 6*dpr]);
+    ctx.lineWidth = 2*dpr;
+    ctx.beginPath();
+    ctx.moveTo(slabStart.x, slabStart.y);
+    ctx.lineTo(slabStart.x + Math.cos(angle)*(H*0.9), slabStart.y + Math.sin(angle)*(H*0.9));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // 海面の白いライン
+    ctx.strokeStyle='rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1*dpr;
+    ctx.beginPath(); ctx.moveTo(0, seaLevel); ctx.lineTo(W, seaLevel); ctx.stroke();
+  }
+
+  function drawArrow(x1,y1,x2,y2,th){
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const ang = Math.atan2(y2-y1, x2-x1);
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2 - 6*th*Math.cos(ang-Math.PI/6), y2 - 6*th*Math.sin(ang-Math.PI/6));
+    ctx.lineTo(x2 - 6*th*Math.cos(ang+Math.PI/6), y2 - 6*th*Math.sin(ang+Math.PI/6));
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ====== 震源パーティクル描画 ======
+  function addEq(x,y,mag,type){
+    state.eqs.push({x,y,mag,type,life:1});
+    // ログ
+    const kinds = {mega:'インターフェース', slab:'スラブ内', outer:'アウターライズ'};
+    const depthKm = Math.max(0, Math.round((y/cv.height)*700)); // 概念的深さ換算
+    logLine(`${kinds[type]} M${mag.toFixed(1)} 深さ~${depthKm}km`);
+    // スクロール
+    ui.log.scrollTop = ui.log.scrollHeight;
+  }
+  function drawEqs(){
+    for(const e of state.eqs){
+      const size = (e.mag-4)*2.2 * dpr * e.life; // 大きいほど大きく
+      switch(e.type){
+        case 'mega': ctx.fillStyle = 'rgba(245,158,11,'+(0.35*e.life)+')'; break;
+        case 'slab': ctx.fillStyle = 'rgba(167,139,250,'+(0.35*e.life)+')'; break;
+        case 'outer': ctx.fillStyle = 'rgba(249,115,22,'+(0.35*e.life)+')'; break;
+      }
+      ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(2*dpr, size), 0, Math.PI*2); ctx.fill();
+      // 光輪
+      ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(3*dpr, size*1.7), 0, Math.PI*2);
+      ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1*dpr; ctx.stroke();
+      e.life *= 0.975; // フェードアウト
+    }
+    // 寿命終了を間引き
+    state.eqs = state.eqs.filter(e=>e.life>0.05);
+  }
+
+  function logLine(s){
+    const t = state.tYear.toFixed(1).padStart(6,' ');
+    ui.log.textContent += `t=${t}年  ${s}\n`;
+  }
+
+  // ====== シミュレーション本体 ======
+  function stepSim(dtYear){ // dtYear: 経過年
+    const g = geom();
+    const v_cm_per_yr = +ui.vel.value; // cm/年
+    const v_m_per_yr = v_cm_per_yr / 100; // m/年
+    const lock = +ui.lock.value / 100;
+    const threshBase = +ui.thresh.value; // m
+
+    // インターフェースを N 区間で離散化し，各区間の蓄積すべりを増やす
+    const segN = state.segN;
+    for(let i=0;i<segN;i++){
+      // 深いほど固着弱い（概念）：線形で 0.9 -> 0.3
+      const depthFactor = lerp(0.9, 0.3, i/(segN-1));
+      const k = lock * depthFactor;
+      state.slipDef[i] += v_m_per_yr * k * dtYear; // m
+    }
+
+    // 破壊の判定
+    if (ui.showMega.checked){
+      // 破壊核の候補：最大蓄積点
+      let iMax = 0, sMax = -1;
+      for(let i=0;i<segN;i++){ if(state.slipDef[i]>sMax){ sMax=state.slipDef[i]; iMax=i; } }
+      // しきい値（乱数で少しばらつき）
+      const locThresh = threshBase * (0.85 + Math.random()*0.3);
+      if (sMax >= locThresh){
+        // 破壊長さ（固着率に比例して拡大）
+        const halfLen = Math.floor( (4 + Math.floor(lock*8)) * Math.random()); // 4〜12 区間程度
+        const i0 = Math.max(0, iMax-halfLen), i1 = Math.min(segN-1, iMax+halfLen);
+        // すべり量の合計（概念）
+        let slipSum = 0;
+        for(let i=i0;i<=i1;i++){ slipSum += state.slipDef[i]; state.slipDef[i] = 0; }
+        const mw = 6 + Math.log10(1 + slipSum*(i1-i0+1))*0.9; // 適当なスケーリング
+
+        // 震央座標をインターフェース上で計算
+        const t = (iMax+0.5)/segN; // 0〜1
+        const hx = g.slabStart.x + Math.cos(g.angle)*(g.H*0.9)*t;
+        const hy = g.slabStart.y + Math.sin(g.angle)*(g.H*0.9)*t;
+        addEq(hx, hy, Math.min(9.4, Math.max(5.5, mw)), 'mega');
+      }
+    }
+
+    // スラブ内（深発）地震のポアソン過程（確率）
+    if (ui.showSlab.checked){
+      // 固着が強いとスラブ内も若干増えると仮定
+      const rate = 0.04 + lock*0.06; // /年（概念）
+      const p = 1 - Math.exp(-rate*dtYear);
+      if (Math.random() < p){
+        const t = Math.random()*0.9; // インターフェースに沿ってやや手前側
+        const off = 120*dpr; // 少し下側（スラブ内部）
+        const g0 = geom();
+        const hx = g0.slabStart.x + Math.cos(g0.angle)*(g0.H*0.9)*t + 18*dpr;
+        const hy = g0.slabStart.y + Math.sin(g0.angle)*(g0.H*0.9)*t + off;
+        const mw = 5.5 + Math.random()*1.5;
+        addEq(hx, hy, mw, 'slab');
+      }
+    }
+
+    // アウターライズ（正断層）：固着が強いほど発生確率増
+    if (ui.showOuter.checked){
+      const rate = 0.015 + lock*0.05; // /年
+      const p = 1 - Math.exp(-rate*dtYear);
+      if (Math.random() < p){
+        const g0 = geom();
+        const hx = g0.trenchX - (30 + Math.random()*90)*dpr;
+        const hy = g0.seaLevel + (60 + Math.random()*160)*dpr;
+        const mw = 5.8 + Math.random()*1.2;
+        addEq(hx, hy, mw, 'outer');
+      }
+    }
+
+    state.tYear += dtYear;
+  }
+
+  // ====== メインループ ======
+  function frame(ts){
+    if(!state.running){ draw(); return; }
+    const dt = Math.max(0, Math.min(1/20, (ts - state.lastFrameTime)/1000)); // 秒
+    state.lastFrameTime = ts;
+    const yearPerSec = +ui.timescale.value; // 年/秒
+    const dtYear = yearPerSec * dt;
+    stepSim(dtYear);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function draw(){
+    clear();
+    const g = geom();
+    drawSea(g);
+    drawCrust(g);
+    drawInterfaceStress(g);
+    drawEqs();
+  }
+
+  // 蓄積ひずみの可視化（点の密度と色）
+  function drawInterfaceStress(g){
+    const {segN, slipDef} = state;
+    const lengthPx = g.H*0.9; // インターフェース描画長
+    for(let i=0;i<segN;i++){
+      const t0 = i/segN, t1=(i+1)/segN;
+      const x0 = g.slabStart.x + Math.cos(g.angle)*lengthPx*t0;
+      const y0 = g.slabStart.y + Math.sin(g.angle)*lengthPx*t0;
+      const x1 = g.slabStart.x + Math.cos(g.angle)*lengthPx*t1;
+      const y1 = g.slabStart.y + Math.sin(g.angle)*lengthPx*t1;
+      // 区間中心
+      const cx = (x0+x1)/2, cy=(y0+y1)/2;
+      const s = slipDef[i];
+      const a = Math.min(1, s/(+ui.thresh.value*1.2));
+      // 蓄積のヒート（黄色→赤）
+      const col = `rgba(${Math.floor(255*Math.min(1, a*1.2))}, ${Math.floor(180*(1-a))}, 40, ${0.25+0.45*a})`;
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, 3*dpr + a*9*dpr);
+      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+
+      // 小さな三角ですべり方向を描画
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(g.angle);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(0, -4*dpr);
+      ctx.lineTo(10*dpr, 0);
+      ctx.lineTo(0, 4*dpr);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ====== イベント ======
+  function setTextSync(input, span, fmt=(v)=>v){
+    function update(){ span.textContent = fmt(+input.value); draw(); }
+    input.addEventListener('input', update);
+    update();
+  }
+  setTextSync(ui.vel, ui.velVal, v=>v.toFixed(1));
+  setTextSync(ui.lock, ui.lockVal, v=>v.toFixed(0));
+  setTextSync(ui.timescale, ui.timescaleVal, v=>v.toFixed(0));
+  setTextSync(ui.angle, ui.angleVal, v=>v.toFixed(0));
+  setTextSync(ui.thresh, ui.threshVal, v=>v.toFixed(1));
+  ui.showMega.addEventListener('change', draw);
+  ui.showSlab.addEventListener('change', draw);
+  ui.showOuter.addEventListener('change', draw);
+
+  ui.play.addEventListener('click', ()=>{
+    if(state.running) return; state.running = true; ui.play.disabled=true; ui.pause.disabled=false; state.lastFrameTime=performance.now(); requestAnimationFrame(frame);
+  });
+  ui.pause.addEventListener('click', ()=>{ state.running=false; ui.play.disabled=false; ui.pause.disabled=true; });
+  ui.step.addEventListener('click', ()=>{ stepSim(1); draw(); });
+  ui.reset.addEventListener('click', ()=>{ init(); draw(); });
+
+  ui.scenario.addEventListener('click', ()=>{
+    // 2011東北沖タイプの広域破壊（概念）：浅部〜中部を一斉解放
+    const i0 = Math.floor(state.segN*0.1), i1 = Math.floor(state.segN*0.66);
+    let slipSum=0; for(let i=i0;i<=i1;i++){ slipSum += (state.slipDef[i] = 0); }
+    const g = geom();
+    const hx = g.slabStart.x + Math.cos(g.angle)*(g.H*0.9)*0.35;
+    const hy = g.slabStart.y + Math.sin(g.angle)*(g.H*0.9)*0.35;
+    addEq(hx, hy, 9.0, 'mega');
+    draw();
+  });
+
+  ui.save.addEventListener('click', ()=>{
+    const tmp = document.createElement('a');
+    tmp.download = `subduction_sim_${Date.now()}.png`;
+    tmp.href = cv.toDataURL('image/png');
+    tmp.click();
+  });
+
+  ui.download.addEventListener('click', ()=>{
+    try{
+      const doctype = '<!DOCTYPE html>';
+      const html = doctype + '\n' + document.documentElement.outerHTML;
+      const blob = new Blob([html], {type:'text/html'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'subduction_sim.html'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    }catch(e){ alert('保存に失敗しました: '+e.message); }
+  });
+
+  // 初回描画
+  draw();
+})();
+</script>
+</body>
+</html>

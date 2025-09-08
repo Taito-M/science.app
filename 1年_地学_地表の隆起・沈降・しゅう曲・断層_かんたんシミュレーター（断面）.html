@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>地表の隆起・沈降・しゅう曲・断層 かんたんシミュレーター（断面）</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#0f172a; --line:#1f2937; --ink:#e5e7eb; --muted:#9ca3af;
+    --sea:#1e3a8a; --land:#10b981; --layer1:#60a5fa; --layer2:#f59e0b; --layer3:#a78bfa; --fault:#f87171;
+  }
+  html,body{height:100%}
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; display:flex; flex-direction:column; gap:10px}
+  header{padding:10px 12px; border-bottom:1px solid var(--line); background:linear-gradient(180deg,#0b1220,#0d162c)}
+  header h1{margin:0 0 4px 0; font-size:18px}
+  header p{margin:0; color:var(--muted); font-size:14px}
+  .wrap{display:grid; grid-template-columns: minmax(280px, 360px) 1fr; align-items:start; gap:10px; padding:0 10px 12px}
+  @media (max-width: 900px){ .wrap{grid-template-columns:1fr} }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px; position:relative; z-index:0;}
+  .row{display:grid; grid-template-columns:120px 1fr 72px; gap:8px; align-items:center; margin:8px 0}
+  .row label{color:var(--muted); font-size:14px}
+  .val{font-variant-numeric:tabular-nums; text-align:right}
+  .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:6px}
+  button{appearance:none; border:none; border-radius:10px; padding:8px 12px; background:#e5e7eb; color:#0b1220; font-weight:600; cursor:pointer}
+  button.secondary{background:#334155; color:#e5e7eb}
+  canvas{width:100%; height:auto; display:block; background:#0b1220; border:1px solid var(--line); border-radius:12px}
+  .legend{display:flex; flex-wrap:wrap; gap:12px; color:var(--muted); font-size:12px; margin-top:6px}
+  .chip{display:inline-flex; align-items:center; gap:6px}
+  .dot{width:12px; height:12px; border-radius:50%}
+  .note{color:var(--muted); font-size:12px; margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>地表の隆起・沈降・しゅう曲・断層 かんたんシミュレーター（断面）</h1>
+  <p>左右からの「圧縮（→←）」と「引張（←→）」だけで、地層の曲がり（しゅう曲）と断層（正断層／逆断層）の発生、地表の隆起・沈降を体感できます。教育用のイメージです。</p>
+</header>
+<div class="wrap">
+  <section class="panel">
+    <h2 style="margin:4px 0 8px 0;font-size:16px">操作</h2>
+    <div class="row">
+      <label>テクトニクス</label>
+      <input id="tect" type="range" min="-100" max="100" step="1" value="60"> 
+      <div class="val"><span id="tectVal">圧縮</span></div>
+    </div>
+    <div class="row">
+      <label>層のやわらかさ</label>
+      <input id="soft" type="range" min="0" max="100" step="1" value="55"> 
+      <div class="val"><span id="softVal">55</span></div>
+    </div>
+    <div class="row">
+      <label>断層しきい値</label>
+      <input id="thresh" type="range" min="10" max="100" step="1" value="45"> 
+      <div class="val"><span id="threshVal">45</span></div>
+    </div>
+    <div class="row">
+      <label>再生速度（年/秒）</label>
+      <input id="speed" type="range" min="2" max="60" step="1" value="12"> 
+      <div class="val"><span id="speedVal">12</span></div>
+    </div>
+    <div class="row" style="grid-template-columns:1fr">
+      <label><input id="showFold" type="checkbox" checked> しゅう曲を表示（隆起・沈降）</label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr">
+      <label><input id="showFaults" type="checkbox" checked> 断層（カクッ）を有効化</label>
+    </div>
+    <div class="row">
+      <label>縦倍率（強調）</label>
+      <input id="vexag" type="range" min="0.5" max="3" step="0.1" value="1.5"> 
+      <div class="val"><span id="vexagVal">1.5×</span></div>
+    </div>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr; gap:8px">
+      <button id="play">▶ 再生</button>
+      <button id="pause" class="secondary" disabled>⏸ 停止</button>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr; gap:8px">
+      <button id="step" class="secondary">⏭ 少し進める</button>
+      <button id="reset" class="secondary">↺ リセット</button>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr; gap:8px">
+      <button id="save" class="secondary">PNG保存</button>
+      <button id="download" class="secondary">ページ保存</button>
+    </div>
+    <p class="note">※スライダー左端＝強い引張（←→）、右端＝強い圧縮（→←）。しきい値を超えると断層が「カクッ」と発生します。</p>
+  </section>
+  <section class="panel">
+    <canvas id="cv" width="1200" height="620" aria-label="断面図"></canvas>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--land)"></span>地表（薄緑）</span>
+      <span class="chip"><span class="dot" style="background:var(--layer1)"></span>地層A</span>
+      <span class="chip"><span class="dot" style="background:var(--layer2)"></span>地層B</span>
+      <span class="chip"><span class="dot" style="background:var(--layer3)"></span>地層C</span>
+      <span class="chip"><span class="dot" style="background:var(--fault)"></span>断層（赤・点線）</span>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  function resize(){
+    const r = cv.getBoundingClientRect();
+    cv.width = Math.floor(r.width * dpr);
+    cv.height = Math.floor((r.width*0.52) * dpr);
+  }
+  resize();
+  addEventListener('resize', resize);
+
+  const ui = {
+    tect: document.getElementById('tect'), tectVal: document.getElementById('tectVal'),
+    soft: document.getElementById('soft'), softVal: document.getElementById('softVal'),
+    thresh: document.getElementById('thresh'), threshVal: document.getElementById('threshVal'),
+    speed: document.getElementById('speed'), speedVal: document.getElementById('speedVal'), showFold: document.getElementById('showFold'), showFaults: document.getElementById('showFaults'), vexag: document.getElementById('vexag'), vexagVal: document.getElementById('vexagVal'),
+    play: document.getElementById('play'), pause: document.getElementById('pause'), step: document.getElementById('step'), reset: document.getElementById('reset'),
+    save: document.getElementById('save'), download: document.getElementById('download')
+  };
+
+  function sync(){
+    const t = +ui.tect.value; ui.tectVal.textContent = (t>5? '圧縮' : t<-5? '引張' : '中立');
+    ui.softVal.textContent = (+ui.soft.value).toFixed(0);
+    ui.threshVal.textContent = (+ui.thresh.value).toFixed(0);
+    ui.speedVal.textContent  = (+ui.speed.value).toFixed(0);
+    ui.vexagVal.textContent = (+ui.vexag.value).toFixed(1) + '×';
+  }
+  ['input','change'].forEach(ev=>{
+    ui.tect.addEventListener(ev, sync);
+    ui.soft.addEventListener(ev, sync);
+    ui.thresh.addEventListener(ev, sync);
+    ui.speed.addEventListener(ev, sync);
+    ui.vexag.addEventListener(ev, ()=>{ sync(); draw(); });
+  });
+  ui.showFold.addEventListener('change', ()=>{ draw(); });
+  ui.showFaults.addEventListener('change', ()=>{ draw(); });
+  sync();
+
+  // ===== モデル =====
+  const PTS = 180;             // x方向の点数
+  const X = new Array(PTS);
+  for(let i=0;i<PTS;i++){ X[i]=i/(PTS-1); }
+
+  const base = { surf:[], L1:[], L2:[], L3:[] };
+  const curr = { surf:[], L1:[], L2:[], L3:[] };
+  const vdisp = { surf:[], L1:[], L2:[], L3:[] }; // 垂直変位（累積）
+  const blockOffset = new Array(PTS).fill(0);     // 断層によるブロック段差（全層共通）
+
+  const faults = []; // {i, type:'normal'|'reverse', dip, progress(0-1), slipTotal, slipDone}
+  let faultEnergy = 0; // 断層発生のための蓄積エネルギー（概念）
+
+  // 初期地形（ゆるく波打つ高原）
+  function makeBase(){
+    for(let i=0;i<PTS;i++){
+      const x = X[i];
+      const y0 = 0.62 + 0.02*Math.sin(x*2*Math.PI) + 0.01*Math.sin(x*6.3+1.2);
+      base.surf[i] = y0;
+      base.L1[i]  = y0 + 0.05;
+      base.L2[i]  = y0 + 0.10;
+      base.L3[i]  = y0 + 0.15;
+      curr.surf[i]= base.surf[i];
+      curr.L1[i]  = base.L1[i];
+      curr.L2[i]  = base.L2[i];
+      curr.L3[i]  = base.L3[i];
+      vdisp.surf[i]= vdisp.L1[i]= vdisp.L2[i]= vdisp.L3[i]=0;
+      blockOffset[i]=0;
+    }
+    faults.length=0; faultEnergy=0;
+  }
+  makeBase();
+
+  const S = { running:false, last:performance.now() };
+
+  ui.play.addEventListener('click', ()=>{ if(S.running) return; S.running=true; ui.play.disabled=true; ui.pause.disabled=false; S.last=performance.now(); requestAnimationFrame(frame); });
+  ui.pause.addEventListener('click', ()=>{ S.running=false; ui.play.disabled=false; ui.pause.disabled=true; });
+  ui.step.addEventListener('click', ()=>{ advance(0.25); draw(); });
+  ui.reset.addEventListener('click', ()=>{ makeBase(); draw(); });
+  ui.save.addEventListener('click', ()=>{ const a=document.createElement('a'); a.download='fold_fault_easy.png'; a.href=cv.toDataURL('image/png'); a.click(); });
+  ui.download.addEventListener('click', ()=>{ const html='<!doctype html>\n'+document.documentElement.outerHTML; const blob=new Blob([html],{type:'text/html'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='fold_fault_easy.html'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1200); });
+
+  function advance(dt){ // dt: 概念的な「年」
+    const soft = (+ui.soft.value)/100;            // 0..1 やわらかいほど曲がりやすい
+    const tect = (+ui.tect.value)/100;            // -1..1 負=引張, 正=圧縮
+
+    // 1) しゅう曲（曲がり）
+    // 真ん中付近に集中する応力分布（左右境界からの押し引き）
+    const sigma = 0.22; // 分布の幅
+    const K = 0.035;    // 垂直変位係数（見やすさ優先）
+    for(let i=0;i<PTS;i++){
+      const x = X[i];
+      const w = Math.exp(-Math.pow((x-0.5)/sigma,2)); // 0..1
+      const add = (ui.showFold && ui.showFold.checked) ? K * soft * tect * w * dt : 0;           // 正: 隆起（中央が盛り上がる）, 負: 沈降
+      vdisp.surf[i] += add;
+      vdisp.L1[i]   += add*0.9;   // 深い層は少し小さく
+      vdisp.L2[i]   += add*0.75;
+      vdisp.L3[i]   += add*0.55;
+    }
+    // なめらかに（拡散っぽく）
+    smooth(vdisp.surf, 2);
+    smooth(vdisp.L1, 2);
+    smooth(vdisp.L2, 2);
+    smooth(vdisp.L3, 2);
+
+    // 2) 断層の発生（一定量たまると「カクッ」）
+    if (ui.showFaults && ui.showFaults.checked){
+      faultEnergy += Math.abs(tect) * dt * 18; // 係数は見やすさ調整
+      const need = +ui.thresh.value; // 10..100
+      while(faultEnergy >= need){
+        spawnFault(tect);
+        faultEnergy -= need;
+      }
+    }
+
+    // 3) 断層すべりの進行（段差アニメーション）
+    if (ui.showFaults && ui.showFaults.checked){
+      for(const f of faults){
+        if(f.progress>=1) continue;
+        const step = Math.min(1-f.progress, 0.08 + 0.12*Math.random());
+        f.progress += step;
+        const slipNow = f.slipTotal * step; // 今回増分
+        const sign = (f.type==='reverse'? -1 : +1); // reverse=上げ, normal=下げ（右側ブロック）
+        for(let i=f.i+1;i<PTS;i++){ blockOffset[i] += sign * slipNow; }
+      }
+    }
+
+    // 4) 現在形状へ反映
+    const ex = +ui.vexag.value;
+    for(let i=0;i<PTS;i++){
+      curr.surf[i] = base.surf[i] + vdisp.surf[i]*ex + blockOffset[i]*ex;
+      curr.L1[i]   = base.L1[i]   + vdisp.L1[i]*ex   + blockOffset[i]*ex;
+      curr.L2[i]   = base.L2[i]   + vdisp.L2[i]*ex   + blockOffset[i]*ex;
+      curr.L3[i]   = base.L3[i]   + vdisp.L3[i]*ex   + blockOffset[i]*ex;
+    }
+  }
+
+  function spawnFault(tect){
+    const i = Math.floor( (PTS*0.25) + Math.random()* (PTS*0.5) ); // 中央付近
+    const type = tect>=0 ? 'reverse' : 'normal';
+    const dip = type==='reverse' ? 30 : 60; // ざっくり
+    const slipTotal = 0.015 + Math.random()*0.025; // 断層段差（正値）
+    faults.push({i,type,dip,progress:0,slipTotal});
+  }
+
+  function smooth(arr, times){
+    for(let t=0;t<times;t++){
+      let prev=arr[0];
+      for(let i=1;i<PTS-1;i++){
+        const cur = arr[i];
+        const nxt = arr[i+1];
+        arr[i] = (prev + cur*2 + nxt)/4; // 簡易平滑
+        prev = cur;
+      }
+    }
+  }
+
+  function frame(ts){
+    if(!S.running){ draw(); return; }
+    const dtSec = Math.min(0.05, (ts - S.last)/1000); S.last=ts;
+    const yearPerSec = +ui.speed.value; // スライダーで調整
+    advance(dtSec * yearPerSec);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function draw(){
+    const g = geom();
+    ctx.clearRect(0,0,cv.width,cv.height);
+
+    // 地面下の塗り
+    ctx.fillStyle = '#0a2a21';
+    ctx.fillRect(0, g.toY(0.62), g.W, g.H-g.toY(0.62));
+
+    // 地層を描く
+    drawLayer(curr.L3, getCss('--layer3'));
+    drawLayer(curr.L2, getCss('--layer2'));
+    drawLayer(curr.L1, getCss('--layer1'));
+
+    // 地表の塗り（薄緑）
+    ctx.save();
+    ctx.fillStyle = 'rgba(16,185,129,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(0, g.toY(curr.surf[0]));
+    for(let i=1;i<PTS;i++) ctx.lineTo(g.xAt(i), g.toY(curr.surf[i]));
+    ctx.lineTo(g.W, g.H); ctx.lineTo(0,g.H); ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    // 基準水平線（初期地形）
+    ctx.save();
+    ctx.setLineDash([6*dpr,6*dpr]);
+    ctx.strokeStyle='rgba(156,163,175,0.6)';
+    drawLayer(base.surf, 'rgba(156,163,175,0.6)', 1*dpr);
+    ctx.restore();
+
+    // 地表線
+    drawLayer(curr.surf, getCss('--land'), 3*dpr);
+
+    // 家マーカー＋変位矢印（基準→現在）
+    const step = Math.floor(PTS/10);
+    for(let k=1;k<10;k++){
+      const i = k*step;
+      const x = g.xAt(i);
+      const yBase = g.toY(base.surf[i]);
+      const yNow  = g.toY(curr.surf[i]);
+      ctx.strokeStyle = 'rgba(245,158,11,0.9)';
+      ctx.fillStyle   = 'rgba(245,158,11,0.9)';
+      drawArrow(x, yBase, x, yNow, 1.6*dpr);
+      // 現在位置のマーカー
+      ctx.fillStyle = '#e5e7eb';
+      ctx.beginPath(); ctx.arc(x, yNow-6*dpr, 3.5*dpr, 0, Math.PI*2); ctx.fill();
+    }
+
+    // 断層の描画
+    if (ui.showFaults && ui.showFaults.checked){ for(const f of faults){ drawFault(f, g); } }
+
+    // 上の矢印（圧縮/引張の見た目）
+    ctx.strokeStyle = '#60a5fa'; ctx.fillStyle='#60a5fa';
+    const yA = 26*dpr;
+    const t = +ui.tect.value;
+    if(t>=0){ // 圧縮 → ←
+      drawArrow(40*dpr, yA, 120*dpr, yA, 2.4*dpr);
+      drawArrow(g.W-40*dpr, yA, g.W-120*dpr, yA, 2.4*dpr);
+      ctx.fillText('圧縮（→ ←）', 130*dpr, yA+4*dpr);
+    }else{    // 引張 ← →
+      drawArrow(120*dpr, yA, 40*dpr, yA, 2.4*dpr);
+      drawArrow(g.W-120*dpr, yA, g.W-40*dpr, yA, 2.4*dpr);
+      ctx.fillText('引張（← →）', 130*dpr, yA+4*dpr);
+    }
+
+    // 左右方位（任意）
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillText('西', 10*dpr, 18*dpr);
+    ctx.fillText('東', g.W-20*dpr, 18*dpr);
+  }
+
+  function getCss(varname){ return getComputedStyle(document.documentElement).getPropertyValue(varname).trim(); }
+
+  function drawLayer(arr, color, lw){
+    const g = geom();
+    ctx.strokeStyle = color; ctx.lineWidth = (lw||2*dpr);
+    ctx.beginPath(); ctx.moveTo(0, g.toY(arr[0]));
+    for(let i=1;i<PTS;i++){ ctx.lineTo(g.xAt(i), g.toY(arr[i])); }
+    ctx.stroke();
+  }
+
+  function drawFault(f, g){
+    const x0 = g.xAt(f.i);
+    const y0 = g.toY(curr.surf[f.i]);
+    const dipRad = f.dip * Math.PI/180;
+    const len = g.H*0.6; // 深さ
+    const dir = +1; // 右傾き（見やすさ優先）
+    const x1 = x0 + Math.cos(dipRad)*len*dir;
+    const y1 = y0 + Math.sin(dipRad)*len;
+    ctx.save();
+    ctx.setLineDash([8*dpr,6*dpr]);
+    ctx.strokeStyle = getCss('--fault'); ctx.lineWidth=2*dpr;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.restore();
+
+    // 表示ラベル
+    ctx.fillStyle = getCss('--fault');
+    ctx.font = `${12*dpr}px system-ui, sans-serif`;
+    ctx.fillText(f.type==='reverse' ? '逆断層' : '正断層', x0+6*dpr, y0-6*dpr);
+  }
+
+  function drawArrow(x1,y1,x2,y2,th){
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const a = Math.atan2(y2-y1, x2-x1);
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-6*th*Math.cos(a-Math.PI/6), y2-6*th*Math.sin(a-Math.PI/6));
+    ctx.lineTo(x2-6*th*Math.cos(a+Math.PI/6), y2-6*th*Math.sin(a+Math.PI/6));
+    ctx.closePath(); ctx.fill();
+  }
+
+  function geom(){
+    const W=cv.width, H=cv.height;
+    return {
+      W,H,
+      xAt:(i)=> i*(W/(PTS-1)),
+      toY:(yNorm)=> Math.max(0, Math.min(H-1, yNorm*H))
+    };
+  }
+
+  // 初期表示
+  draw();
+})();
+</script>
+</body>
+</html>

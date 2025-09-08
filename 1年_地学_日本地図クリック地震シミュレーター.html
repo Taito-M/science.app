@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>日本地図クリック地震シミュレーター（既定地図=同フォルダの japan-map.png）</title>
+<style>
+  :root{ --bg:#0b1220; --panel:#0f172a; --ink:#e5e7eb; --muted:#9ca3af; --line:#1f2937; }
+  html,body{height:100%}
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif; display:flex; flex-direction:column; gap:10px}
+  header{padding:10px 12px; border-bottom:1px solid var(--line); background:linear-gradient(180deg,#0b1220,#0d162c)}
+  header h1{margin:0 0 4px 0; font-size:18px}
+  header p{margin:0; color:var(--muted); font-size:14px}
+  .wrap{display:grid; grid-template-columns:minmax(320px,380px) 1fr; gap:10px; padding:0 10px 12px; align-items:start}
+  @media (max-width: 900px){ .wrap{grid-template-columns:1fr} }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px}
+  .row{display:grid; grid-template-columns:140px 1fr 90px; gap:8px; align-items:center; margin:8px 0}
+  .row label{color:var(--muted); font-size:14px}
+  .val{font-variant-numeric:tabular-nums; text-align:right}
+  button{appearance:none; border:none; border-radius:10px; padding:8px 12px; background:#e5e7eb; color:#0b1220; font-weight:600; cursor:pointer}
+  button.secondary{background:#334155; color:#e5e7eb}
+  input[type="file"]{color:var(--ink)}
+  .stage{position:relative; width:100%; background:#071428; border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  .stage img{display:block; width:100%; height:auto; user-select:none; pointer-events:none}
+  .stage canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+  .legend{display:flex; flex-wrap:wrap; gap:10px; color:#9ca3af; font-size:12px; margin-top:6px}
+  .chip{display:inline-flex; align-items:center; gap:6px}
+  .dot{width:14px; height:14px; border-radius:4px}
+  .note{color:#9ca3af; font-size:12px; margin-top:6px}
+  .hint{position:absolute; inset:auto 12px 12px auto; background:rgba(17,24,39,.7); border:1px solid rgba(255,255,255,.08); color:#e5e7eb; padding:8px 10px; border-radius:10px; font-size:12px}
+  .fallback{position:absolute; inset:0; display:grid; place-items:center; color:#9ca3af; font-size:14px; text-align:center; padding:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>日本地図クリック地震シミュレーター</h1>
+  <p>既定地図は同フォルダの <code>japan-map.png</code>。クリックで震源→P/S波リングと推定震度、都市ラベルにP/S <u>到達時間</u>（概算）。</p>
+</header>
+
+<div class="wrap">
+  <section class="panel">
+    <h2 style="margin:4px 0 8px 0;font-size:16px">操作</h2>
+
+    <div class="row">
+      <label>別の地図を読み込む</label>
+      <input id="mapFile" type="file" accept="image/*">
+      <div class="val">PNG/JPG</div>
+    </div>
+
+    <div class="row">
+      <label>マグニチュード M</label>
+      <input id="mag" type="range" min="4.0" max="9.2" step="0.1" value="6.8">
+      <div class="val"><span id="magVal">6.8</span></div>
+    </div>
+
+    <div class="row">
+      <label>深さ（km）</label>
+      <input id="dep" type="range" min="0" max="300" step="5" value="30">
+      <div class="val"><span id="depVal">30</span></div>
+    </div>
+
+    <div class="row">
+      <label>減衰係数（広がり）</label>
+      <input id="att" type="range" min="1.0" max="2.2" step="0.05" value="1.5">
+      <div class="val"><span id="attVal">1.50</span></div>
+    </div>
+
+    <div class="row">
+      <label>アニメ速度</label>
+      <input id="speed" type="range" min="0.2" max="5" step="0.1" value="1.2">
+      <div class="val"><span id="speedVal">1.2×</span></div>
+    </div>
+
+    <div class="row" style="grid-template-columns:1fr 1fr; gap:8px">
+      <button id="play">▶ 再生</button>
+      <button id="pause" class="secondary" disabled>⏸ 停止</button>
+    </div>
+
+    <div class="row" style="grid-template-columns:1fr 1fr; gap:8px">
+      <button id="reset" class="secondary">↺ クリア</button>
+      <button id="random" class="secondary">🎲 ランダム震源</button>
+    </div>
+
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label><input id="editCities" type="checkbox"> 都市位置を編集</label>
+      <button id="saveCities" class="secondary">位置を保存</button>
+      <button id="resetCities" class="secondary">位置をリセット</button>
+    </div>
+
+    <p class="note">色は推定震度（0,1,2,3,4,5弱,5強,6弱,6強,7）。観測再現ではなく教育用の概念モデルです。</p>
+  </section>
+
+  <section class="panel">
+    <div class="stage" id="stage">
+      <!-- 既定は同フォルダの japan-map.png を読み込む。失敗したらフォールバック表示 -->
+      <img id="mapImg" alt="地図画像" src="japan-map.png" />
+      <canvas id="overlay" aria-label="震度分布と波面"></canvas>
+      <div class="hint" id="hint">上をクリックして震源を置く</div>
+      <div class="fallback" id="fallback" style="display:none">
+        <div>
+          <div style="font-size:40px; line-height:1">🗾</div>
+          <div>既定地図 <code>japan-map.png</code> を同フォルダへ置いてください<br>（または左の「別の地図を読み込む」で指定）</div>
+        </div>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  const img = document.getElementById('mapImg');
+  const stage = document.getElementById('stage');
+  const cv = document.getElementById('overlay');
+  const ctx = cv.getContext('2d');
+  const hint = document.getElementById('hint');
+  const fallback = document.getElementById('fallback');
+
+  function fitCanvas(){
+    const r = stage.getBoundingClientRect();
+    cv.width = Math.floor(r.width * dpr);
+    cv.height = Math.floor(r.height * dpr);
+    cv.style.width = r.width + 'px';
+    cv.style.height = r.height + 'px';
+  }
+  function onResize(){ fitCanvas(); draw(); }
+  new ResizeObserver(onResize).observe(stage);
+  addEventListener('resize', onResize);
+  fitCanvas();
+
+  // ==== UI ====
+  const ui = {
+    mapFile: document.getElementById('mapFile'),
+    mag: document.getElementById('mag'), magVal: document.getElementById('magVal'),
+    dep: document.getElementById('dep'), depVal: document.getElementById('depVal'),
+    att: document.getElementById('att'), attVal: document.getElementById('attVal'),
+    speed: document.getElementById('speed'), speedVal: document.getElementById('speedVal'),
+    play: document.getElementById('play'), pause: document.getElementById('pause'), reset: document.getElementById('reset'), random: document.getElementById('random'),
+    editCities: document.getElementById('editCities'), saveCities: document.getElementById('saveCities'), resetCities: document.getElementById('resetCities')
+  };
+  function sync(){ ui.magVal.textContent=(+ui.mag.value).toFixed(1); ui.depVal.textContent=(+ui.dep.value).toFixed(0); ui.attVal.textContent=(+ui.att.value).toFixed(2); ui.speedVal.textContent=(+ui.speed.value).toFixed(1)+'×'; }
+  ['input','change'].forEach(ev=>{
+    ui.mag.addEventListener(ev, ()=>{ sync(); draw(); });
+    ui.dep.addEventListener(ev, ()=>{ sync(); draw(); });
+    ui.att.addEventListener(ev, ()=>{ sync(); draw(); });
+    ui.speed.addEventListener(ev, sync);
+  });
+  sync();
+
+  // ==== Map image: file or default ====
+  let defaultLoaded = false;
+  img.addEventListener('load', ()=>{ fallback.style.display = 'none'; defaultLoaded = true; onResize(); draw(); });
+  img.addEventListener('error', ()=>{ fallback.style.display = 'grid'; defaultLoaded = false; draw(); });
+
+  ui.mapFile.addEventListener('change', (e)=>{
+    const f=e.target.files && e.target.files[0]; if(!f) return;
+    const url = URL.createObjectURL(f);
+    img.onload = ()=>{ fallback.style.display='none'; onResize(); draw(); };
+    img.onerror = ()=>{ fallback.style.display='grid'; };
+    img.src = url;
+  });
+  stage.addEventListener('dragover', e=>{ e.preventDefault(); });
+  stage.addEventListener('drop', e=>{
+    e.preventDefault();
+    const f=e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f && f.type.startsWith('image/')){
+      const url=URL.createObjectURL(f);
+      img.onload = ()=>{ fallback.style.display='none'; onResize(); draw(); };
+      img.onerror = ()=>{ fallback.style.display='grid'; };
+      img.src=url;
+    }
+  });
+
+  // ==== State ====
+  const S = { epic:null, t:0, running:false, last:performance.now() };
+
+  ui.play.addEventListener('click', ()=>{ if(S.running) return; S.running=true; ui.play.disabled=true; ui.pause.disabled=false; S.last=performance.now(); requestAnimationFrame(frame); });
+  ui.pause.addEventListener('click', ()=>{ S.running=false; ui.play.disabled=false; ui.pause.disabled=true; });
+  ui.reset.addEventListener('click', ()=>{ S.epic=null; S.t=0; draw(); });
+  ui.random.addEventListener('click', ()=>{
+    const r=stage.getBoundingClientRect();
+    const x=r.left + Math.random()*r.width; const y=r.top + Math.random()*r.height;
+    setEpic({x,y});
+  });
+
+  cv.addEventListener('click', (e)=>{ setEpic({x:e.clientX, y:e.clientY}, true); });
+
+  function setEpic(p, autorun){
+    const r = stage.getBoundingClientRect();
+    const x = (p.x - r.left) * dpr;
+    const y = (p.y - r.top) * dpr;
+    S.epic = {x,y, w:r.width*dpr, h:r.height*dpr};
+    S.t = 0;
+    if(autorun){ S.running=true; ui.play.disabled=true; ui.pause.disabled=false; S.last=performance.now(); requestAnimationFrame(frame);} 
+    draw();
+  }
+
+  function frame(ts){
+    if(!S.running){ draw(); return; }
+    const dtSec=Math.min(0.05,(ts-S.last)/1000);
+    S.last=ts; S.t += dtSec * (+ui.speed.value);
+    draw(); requestAnimationFrame(frame);
+  }
+
+  // ==== Model ====
+  const V_P = 6.0, V_S = 3.5; // km/s（概）
+  function estimateShindo(Mw, Rkm, att){ const bias=1.3; const s = Mw - att*Math.log10(Math.max(1,Rkm)) + bias; return Math.max(0, Math.min(7.2, s)); }
+  function shindoLabel(s){ return s>=7.0?'7': s>=6.5?'6強': s>=6.0?'6弱': s>=5.5?'5強': s>=4.5?'5弱': s>=3.5?'4': s>=2.5?'3': s>=1.5?'2': s>=0.5?'1':'0'; }
+  function shindoColor(s){
+    if(s>=7.0) return '#7e22ce'; if(s>=6.5) return '#db2777'; if(s>=6.0) return '#ef4444';
+    if(s>=5.5) return '#f97316'; if(s>=4.5) return '#f59e0b'; if(s>=3.5) return '#eab308';
+    if(s>=2.5) return '#84cc16'; if(s>=1.5) return '#22c55e'; if(s>=0.5) return '#38bdf8'; return '#94a3b8';
+  }
+
+  // 都市（初期位置はざっくり。編集→保存でローカルに保持）
+  let cities = [
+    {name:'札幌', px:0.78, py:0.20},
+    {name:'仙台', px:0.75, py:0.45},
+    {name:'東京', px:0.74, py:0.54},
+    {name:'名古屋', px:0.66, py:0.58},
+    {name:'大阪', px:0.61, py:0.61},
+    {name:'広島', px:0.55, py:0.62},
+    {name:'福岡', px:0.46, py:0.66},
+    {name:'那覇', px:0.21, py:0.82}
+  ];
+  const defaultCities = JSON.parse(JSON.stringify(cities));
+  const CITY_KEY = 'eqsim_city_overrides_v1';
+  function loadOverrides(){ try{ const saved=JSON.parse(localStorage.getItem(CITY_KEY)||'[]'); for(const s of saved){ const c=cities.find(x=>x.name===s.name); if(c && typeof s.px==='number' && typeof s.py==='number'){ c.px=s.px; c.py=s.py; } } }catch(e){} }
+  function saveOverrides(){ localStorage.setItem(CITY_KEY, JSON.stringify(cities.map(({name,px,py})=>({name,px,py})))); }
+  loadOverrides();
+
+  const EDIT = { on:false, dragging:-1 };
+  ui.editCities.addEventListener('change', ()=>{ EDIT.on = ui.editCities.checked; });
+  ui.saveCities.addEventListener('click', ()=>{ saveOverrides(); });
+  ui.resetCities.addEventListener('click', ()=>{ localStorage.removeItem(CITY_KEY); cities = JSON.parse(JSON.stringify(defaultCities)); draw(); });
+
+  cv.addEventListener('mousedown', (e)=>{
+    if(!EDIT.on) return;
+    const r=stage.getBoundingClientRect(); const x=(e.clientX-r.left)*dpr, y=(e.clientY-r.top)*dpr; const W=r.width*dpr, H=r.height*dpr;
+    let best=-1, bestD=1e9; for(let i=0;i<cities.length;i++){ const cx=cities[i].px*W, cy=cities[i].py*H; const d=Math.hypot(x-cx,y-cy); if(d<bestD && d<22*dpr){ best=i; bestD=d; } }
+    EDIT.dragging = best;
+  });
+  addEventListener('mousemove', (e)=>{
+    if(EDIT.dragging<0) return; const r=stage.getBoundingClientRect(); const x=(e.clientX-r.left)*dpr, y=(e.clientY-r.top)*dpr; const W=r.width*dpr, H=r.height*dpr;
+    cities[EDIT.dragging].px = Math.max(0, Math.min(1, x/W));
+    cities[EDIT.dragging].py = Math.max(0, Math.min(1, y/H));
+    draw();
+  });
+  addEventListener('mouseup', ()=>{ EDIT.dragging=-1; });
+
+  function draw(){
+    const r = stage.getBoundingClientRect();
+    const rect = {x:0, y:0, w:r.width*dpr, h:r.height*dpr};
+    ctx.clearRect(0,0,cv.width,cv.height);
+
+    // 画像がまだ無いときはヒントだけ
+    if(!img.complete || img.naturalWidth===0){
+      hint.style.display = 'block';
+      return;
+    }
+    hint.style.display = 'none';
+
+    if(S.epic){
+      const Mw=+ui.mag.value, dep=+ui.dep.value, att=+ui.att.value;
+      const kmPerPx = 2200 / (rect.w/dpr); // 画像幅≒2200km（概算）
+      const cx=S.epic.x, cy=S.epic.y;
+      const t=S.t; const rp = (t*V_P*200); const rs=(t*V_S*200);
+
+      // 等震度帯（固定）
+      const levels = [0.5,1.5,2.5,3.5,4.5,5.5,6.0,6.5,7.0];
+      for(const sThr of levels){
+        const Rkm = Math.pow(10, (Mw + 1.3 - sThr)/att);
+        const rHoriz = Math.max(0, Math.sqrt(Math.max(0, Rkm*Rkm - dep*dep)));
+        const rPx = rHoriz / kmPerPx * dpr;
+        ctx.fillStyle = shindoColor(sThr);
+        ctx.globalAlpha = 0.18; ctx.beginPath(); ctx.arc(cx, cy, rPx, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+      }
+      // 波面
+      ctx.strokeStyle='rgba(56,189,248,0.85)'; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.arc(cx, cy, rp, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle='rgba(34,197,94,0.85)'; ctx.beginPath(); ctx.arc(cx, cy, rs, 0, Math.PI*2); ctx.stroke();
+      // 震源
+      ctx.fillStyle='#f43f5e'; ctx.beginPath(); ctx.arc(cx, cy, 5*dpr, 0, Math.PI*2); ctx.fill();
+      // 経過時間
+      ctx.fillStyle='#e5e7eb'; ctx.font=`${12*dpr}px system-ui, sans-serif`; ctx.fillText('t = '+S.t.toFixed(1)+' s', 12*dpr, 18*dpr);
+
+      // 都市ラベル
+      for(const c of cities){
+        const x = c.px*rect.w, y = c.py*rect.h;
+        const dx=(x-cx)*kmPerPx/dpr, dy=(y-cy)*kmPerPx/dpr;
+        const R=Math.sqrt(dx*dx+dy*dy+dep*dep);
+        const s=estimateShindo(Mw, R, att);
+        const Tp = R / V_P; const Ts = R / V_S;
+        drawCity(x,y,c.name, s, Tp, Ts);
+      }
+
+      infoPanel(rect, Mw, dep, estimateShindo(Mw, Math.max(1, dep), att));
+    }
+
+    drawLegend();
+  }
+
+  function drawCity(x,y,name, s, Tp, Ts){
+    ctx.fillStyle = '#e5e7eb'; ctx.beginPath(); ctx.arc(x, y, 3.5*dpr, 0, Math.PI*2); ctx.fill();
+    const col = shindoColor(s); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    const line1 = name+' '+shindoLabel(s);
+    const line2 = 'P ' + formatTime(Tp) + ' | S ' + formatTime(Ts);
+    ctx.font = `${12*dpr}px system-ui, sans-serif`;
+    const w = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width) + 10*dpr;
+    const h = 34*dpr;
+    ctx.fillRect(x+6*dpr, y- h, w, h);
+    ctx.fillStyle = '#0b1220';
+    ctx.fillText(line1, x+10*dpr, y-16*dpr);
+    ctx.fillText(line2, x+10*dpr, y-4*dpr);
+  }
+
+  function infoPanel(rect, Mw, dep, nearS){
+    const x = rect.w - 260*dpr - 12*dpr, y = 12*dpr, w=250*dpr, h=104*dpr;
+    ctx.fillStyle='rgba(17,24,39,0.8)'; ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.strokeRect(x,y,w,h);
+    ctx.fillStyle='#e5e7eb'; ctx.font=`${14*dpr}px system-ui, sans-serif`;
+    ctx.fillText(`M ${Mw.toFixed(1)} / 深さ ${dep.toFixed(0)} km`, x+10*dpr, y+22*dpr);
+    ctx.fillText(`震源付近の推定最大震度： ${nearS>=7?'7':shindoLabel(nearS)}`, x+10*dpr, y+44*dpr);
+    ctx.fillStyle='#9ca3af'; ctx.font=`${12*dpr}px system-ui, sans-serif`;
+    ctx.fillText('P=6.0 km/s / S=3.5 km/s', x+10*dpr, y+64*dpr);
+    ctx.fillText('クリックで震源設定／再生で波面が広がります', x+10*dpr, y+86*dpr);
+  }
+
+  function drawLegend(){
+    const host = document.getElementById('legend'); if(host.dataset.built==='1') return;
+    const levels=[{l:'7',s:7.0},{l:'6強',s:6.5},{l:'6弱',s:6.0},{l:'5強',s:5.5},{l:'5弱',s:4.5},{l:'4',s:3.5},{l:'3',s:2.5},{l:'2',s:1.5},{l:'1',s:0.5},{l:'0',s:0.0}];
+    for(const it of levels){ const span=document.createElement('span'); span.className='chip'; const dot=document.createElement('span'); dot.className='dot'; dot.style.background=shindoColor(it.s); span.appendChild(dot); const t=document.createTextNode('震度 '+it.l); span.appendChild(t); host.appendChild(span);} host.dataset.built='1';
+  }
+
+  function formatTime(sec){
+    if(!isFinite(sec) || sec<0) return '-';
+    if(sec<60) return sec.toFixed(1)+'s';
+    const m=Math.floor(sec/60), s=sec-60*m; return `${m}m${s.toFixed(0)}s`;
+  }
+
+  // 初回描画
+  draw();
+})();
+</script>
+</body>
+</html>

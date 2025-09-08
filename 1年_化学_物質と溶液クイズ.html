@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>【新作】中学理科 空欄補充クイズ｜混合物・純物質・密度・実験</title>
+<style>
+:root{--ok:#0a7a5a;--ng:#c62828;--ink:#222;--bg:#fafafa;--card:#fff;}
+*{box-sizing:border-box}
+body{font-family:system-ui,"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{background:#222;color:#fff;padding:16px 20px}
+h1{margin:0 0 6px;font-size:clamp(20px,3.8vw,28px)}
+main{max-width:980px;margin:0 auto;padding:24px 14px 96px}
+section.q{background:var(--card);border:1px solid #eee;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 14px rgba(0,0,0,.05)}
+.qtitle{font-weight:700;margin-bottom:10px;display:flex;gap:8px;align-items:baseline}
+.qid{font-size:12px;background:#eef;border:1px solid #dde;padding:2px 8px;border-radius:999px;color:#334}
+.prompt{opacity:.95}
+.choices{display:grid;gap:6px;margin:10px 0}
+.choices label{display:flex;gap:8px;align-items:center;border:1px solid #e5e5e5;border-radius:10px;padding:6px 10px;background:#fff}
+input[type="text"]{width:min(640px,100%);padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:16px}
+input.w80{width:120px}
+select{padding:8px 10px;border-radius:10px;border:1px solid #ddd}
+.small{font-size:13px;opacity:.85}
+.result{margin-top:8px;font-weight:700}
+.ok{color:var(--ok)}
+.ng{color:var(--ng)}
+.model{color:#b71c1c;font-weight:700}
+.hide{display:none}
+.grid{display:grid;gap:12px}
+.grid.cols-3{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #eee;border-radius:10px;overflow:hidden}
+th,td{border:1px solid #eee;padding:8px 10px;text-align:left}
+th{background:#f6f7ff}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eee;margin-left:6px;font-size:12px}
+.actions{position:sticky;bottom:0;background:rgba(250,250,250,.95);backdrop-filter:blur(6px);border-top:1px solid #eee;padding:12px 16px;display:flex;gap:10px;justify-content:center}
+button{border:0;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+.primary{background:#1565c0;color:#fff}
+.ghost{background:#fff;border:1px solid #ccc}
+.warn{background:#ef5350;color:#fff}
+footer{max-width:980px;margin:14px auto 24px;padding:0 14px;font-size:12px;opacity:.85}
+kbd{background:#eee;border:1px solid #ddd;border-bottom-color:#ccc;padding:2px 6px;border-radius:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>【新作】空欄補充クイズ｜混合物・純物質・密度・実験</h1>
+  <div class="small">自動採点・オフライン対応／表記ゆれ（漢字・かな・記号）をある程度許容</div>
+</header>
+<main>
+
+<!-- A. 用語（空欄補充） -->
+<section class="q" data-type="text" data-qid="A1" data-answers='["混合物","こんごうぶつ"]'>
+  <div class="qtitle"><span class="qid">A-1</span><span>いくつかの物質が混ざりあってできているもの → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：混合物（こんごうぶつ）</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A2" data-answers='["純物質","じゅんぶっしつ","純粋物質","じゅんすいぶっしつ","純粋な物質","じゅんすいなぶっしつ"]'>
+  <div class="qtitle"><span class="qid">A-2</span><span>１種類の物質でできているもの → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：純物質（純粋な物質）</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A3" data-answers='["溶質","ようしつ"]'>
+  <div class="qtitle"><span class="qid">A-3</span><span>溶ける側の物質（例：食塩水の食塩） → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：溶質</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A4" data-answers='["溶媒","ようばい"]'>
+  <div class="qtitle"><span class="qid">A-4</span><span>溶かす液体（例：食塩水の水） → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：溶媒</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A5" data-answers='["溶液","ようえき"]'>
+  <div class="qtitle"><span class="qid">A-5</span><span>溶質が溶媒に溶けてできた均一な混合物 → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：溶液</div>
+</section>
+
+<section class="q" data-type="pair" data-qid="A6" data-answers='["質量","体積","しつりょう","たいせき"]'>
+  <div class="qtitle"><span class="qid">A-6</span><span>密度＝（　　）÷（　　）</span></div>
+  <div class="choices">
+    <input class="w80" type="text" placeholder=""> ／
+    <input class="w80" type="text" placeholder="">
+  </div>
+  <div class="result small"></div>
+  <div class="model hide">模範解答：密度＝<b>質量</b> ÷ <b>体積</b></div>
+</section>
+
+<section class="q" data-type="text" data-qid="A7" data-answers='["展性","てんせい"]'>
+  <div class="qtitle"><span class="qid">A-7</span><span>金属の、たたくとうすく広がる性質 → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：展性</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A8" data-answers='["延性","えんせい"]'>
+  <div class="qtitle"><span class="qid">A-8</span><span>金属の、引っ張ると細くのびる性質 → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：延性</div>
+</section>
+
+<section class="q" data-type="text" data-qid="A9" data-answers='["二酸化炭素","にさんかたんそ","co2","CO2"]'>
+  <div class="qtitle"><span class="qid">A-9</span><span>石灰水が白くにごる原因の気体 → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：二酸化炭素（CO₂）</div>
+</section>
+
+<section class="q" data-type="pair" data-qid="A10" data-answers='["デンプン","でんぷん","青紫","あおむらさき","青紫色"]'>
+  <div class="qtitle"><span class="qid">A-10</span><span>かたくり粉は（　　）であり、ヨウ素液で（　　）色になる。</span></div>
+  <div class="choices">
+    <input class="w80" type="text" placeholder=""> と
+    <input class="w80" type="text" placeholder="">
+  </div>
+  <div class="result small"></div>
+  <div class="model hide">模範解答：デンプン ／ 青紫（色）</div>
+</section>
+
+<!-- B. 選択・記述混合 -->
+<section class="q" data-type="radio" data-qid="B1" data-answer="○">
+  <div class="qtitle"><span class="qid">B-1</span><span>水と食塩の混合物は「溶液」である。</span></div>
+  <div class="choices">
+    <label><input type="radio" name="B1" value="○">○（正しい）</label>
+    <label><input type="radio" name="B1" value="×">×（誤り）</label>
+  </div>
+  <div class="result"></div>
+  <div class="model hide">模範解答：○（食塩水は溶液）</div>
+</section>
+
+<section class="q" data-type="radio" data-qid="B2" data-answer="×">
+  <div class="qtitle"><span class="qid">B-2</span><span>空気は純物質である。</span></div>
+  <div class="choices">
+    <label><input type="radio" name="B2" value="○">○</label>
+    <label><input type="radio" name="B2" value="×">×</label>
+  </div>
+  <div class="result"></div>
+  <div class="model hide">模範解答：×（空気は複数の気体からなる混合物）</div>
+</section>
+
+<section class="q" data-type="radio" data-qid="B3" data-answer="○">
+  <div class="qtitle"><span class="qid">B-3</span><span>密度が水より小さい物質は水に浮く。</span></div>
+  <div class="choices">
+    <label><input type="radio" name="B3" value="○">○</label>
+    <label><input type="radio" name="B3" value="×">×</label>
+  </div>
+  <div class="result"></div>
+  <div class="model hide">模範解答：○</div>
+</section>
+
+<section class="q" data-type="pair" data-qid="B4" data-answers='["水","みず","食塩","しょくえん","塩","えん"]'>
+  <div class="qtitle"><span class="qid">B-4</span><span>食塩水を加熱すると、まず（　　）が蒸発し、（　　）が残る。</span></div>
+  <div class="choices">
+    <input class="w80" type="text" placeholder=""> と
+    <input class="w80" type="text" placeholder="">
+  </div>
+  <div class="result small"></div>
+  <div class="model hide">模範解答：水 ／ 食塩</div>
+</section>
+
+<section class="q" data-type="pair" data-qid="B5" data-answers='["炭","すす","二酸化炭素","co2","CO2","たん","スス"]'>
+  <div class="qtitle"><span class="qid">B-5</span><span>砂糖を加熱すると（　　）になり、（　　）が発生して石灰水を白くにごらせる。</span></div>
+  <div class="choices">
+    <input class="w80" type="text" placeholder=""> と
+    <input class="w80" type="text" placeholder="">
+  </div>
+  <div class="result small"></div>
+  <div class="model hide">模範解答：炭 ／ 二酸化炭素（CO₂）</div>
+</section>
+
+<!-- C. 計算 -->
+<section class="q" data-type="numeric" data-qid="C1" data-answer-num="0.8" data-tol="0.01" data-unit="g/cm^3">
+  <div class="qtitle"><span class="qid">C-1</span><span>体積 50 cm³、質量 40 g の密度は（　　） g/cm³</span></div>
+  <input type="text" class="w80" placeholder="数値のみ">
+  <div class="result"></div>
+  <div class="model hide">模範解答：0.8 g/cm³（= 40 ÷ 50）</div>
+</section>
+
+<section class="q" data-type="numeric" data-qid="C2" data-answer-num="270" data-tol="0.5" data-unit="g">
+  <div class="qtitle"><span class="qid">C-2</span><span>密度 2.7 g/cm³ の金属 100 cm³ の質量は（　　） g</span></div>
+  <input type="text" class="w80" placeholder="数値のみ">
+  <div class="result"></div>
+  <div class="model hide">模範解答：270 g（= 2.7 × 100）</div>
+</section>
+
+<section class="q" data-type="numeric" data-qid="C3" data-answer-num="80" data-tol="0.5" data-unit="cm^3">
+  <div class="qtitle"><span class="qid">C-3</span><span>質量 120 g、密度 1.5 g/cm³ のとき体積は（　　） cm³</span></div>
+  <input type="text" class="w80" placeholder="数値のみ">
+  <div class="result"></div>
+  <div class="model hide">模範解答：80 cm³（= 120 ÷ 1.5）</div>
+</section>
+
+<!-- D. 実験と推定 -->
+<section class="q" data-type="info" data-qid="D0">
+  <div class="qtitle"><span class="qid">D-0</span><span>参考：砂糖・食塩・かたくり粉の結果（例）</span></div>
+  <table>
+    <thead><tr><th>物質</th><th>水にとける</th><th>加熱</th><th>石灰水</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>とけた</td><td>燃えて炭になった。甘いにおい。</td><td>白くにごった</td></tr>
+      <tr><td>B</td><td>とけない</td><td>燃えて炭になった</td><td>白くにごった</td></tr>
+      <tr><td>C</td><td>とけた</td><td>燃えない</td><td>変化なし</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="q" data-type="dropdowns" data-qid="D1" data-answer='{"A":"砂糖","B":"かたくり粉","C":"食塩"}'>
+  <div class="qtitle"><span class="qid">D-1</span><span>A〜Cはそれぞれ何か。選びなさい。</span></div>
+  <div class="grid cols-3">
+    <label>A → 
+      <select><option value="">（選択）</option><option>砂糖</option><option>食塩</option><option>かたくり粉</option></select>
+    </label>
+    <label>B → 
+      <select><option value="">（選択）</option><option>砂糖</option><option>食塩</option><option>かたくり粉</option></select>
+    </label>
+    <label>C → 
+      <select><option value="">（選択）</option><option>砂糖</option><option>食塩</option><option>かたくり粉</option></select>
+    </label>
+  </div>
+  <div class="result"></div>
+  <div class="model hide">模範解答：A=砂糖、B=かたくり粉、C=食塩</div>
+</section>
+
+<section class="q" data-type="text" data-qid="D2" data-answers='["かたくり粉","片栗粉","でんぷん","デンプン"]'>
+  <div class="qtitle"><span class="qid">D-2</span><span>「Bは水にとけない」から、Bの正体として最も可能性が高いのは（　　）。</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：かたくり粉（= デンプン）</div>
+</section>
+
+<section class="q" data-type="text" data-qid="D3" data-answers='["二酸化炭素","co2","CO2","にさんかたんそ"]'>
+  <div class="qtitle"><span class="qid">D-3</span><span>石灰水が白くにごったとき発生していた気体名 → （　　）</span></div>
+  <input type="text" placeholder="">
+  <div class="result"></div>
+  <div class="model hide">模範解答：二酸化炭素（CO₂）</div>
+</section>
+
+<!-- 操作ボタン -->
+<div class="actions">
+  <button class="primary" id="gradeBtn">採点する</button>
+  <button class="ghost" id="showBtn">模範解答を一括表示</button>
+  <button class="ghost" id="shuffleBtn">問題をシャッフル</button>
+  <button class="warn" id="resetBtn">リセット</button>
+</div>
+
+</main>
+<footer>
+  操作ヒント：<kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>P</kbd> で印刷。ファイルを配布するだけで実施できます（外部通信なし）。
+</footer>
+
+<script>
+// ---- Helpers ----
+function kanaToHira(str){ // normalize: spaces, punctuation, full/half width, and treat カナ=かな
+  if(!str) return "";
+  const table = {'Ⅰ':'I','Ⅱ':'II','Ⅲ':'III','Ⅳ':'IV','（':'','）':'','(':'',')':'','・':'','，':'','。':'','、':'','／':'/','²':'2','₃':'3','₄':'4','ｰ':''};
+  let s = (""+str).trim().toLowerCase();
+  s = s.replace(/[ 	　]/g, "");
+  s = s.replace(/co₂/g, "co2");
+  s = s.replace(/[（）\(\)・、，。．\.]/g,"");
+  s = s.replace(/[ⅠⅡⅢⅣ（）・，。、\/²₃₄]/g, m=>table[m]??"");
+  // unify long vowels / tildes
+  s = s.replace(/[ーｰ〜~]/g, "");
+  // fullwidth -> halfwidth
+  s = s.replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  // Katakana -> Hiragana
+  s = s.replace(/[ァ-ヶ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  return s;
+}
+
+function eqStr(a, b){
+  return kanaToHira(a) === kanaToHira(b);
+}
+
+function includesAny(val, arr){
+  const v = kanaToHira(val);
+  return arr.some(x => kanaToHira(x) === v);
+}
+
+// ---- Grading ----
+function grade(){
+  let total = 0, ok = 0;
+  document.querySelectorAll('section.q').forEach(sec => {
+    const type = sec.dataset.type;
+    if(type === 'info') return;
+    total++;
+    const res = sec.querySelector('.result'); res.textContent="";
+    const model = sec.querySelector('.model');
+    if(model) model.classList.add('hide');
+
+    let correct = false;
+
+    if(type === 'text'){
+      const answers = JSON.parse(sec.dataset.answers || "[]");
+      const input = sec.querySelector('input[type=text]').value;
+      correct = includesAny(input, answers);
+    }
+
+    if(type === 'pair'){
+      const answers = JSON.parse(sec.dataset.answers || "[]"); // expects multiple accepted tokens
+      const ins = sec.querySelectorAll('input[type=text]');
+      const a = ins[0].value, b = ins[1].value;
+      // We accept either correct pair order (質量,体積) or kana versions
+      const set1 = [answers[0], answers[1]]; // 質量,体積 など
+      const set2 = [answers[2]||answers[0], answers[3]||answers[1]]; // kana
+      const ok1 = eqStr(a,set1[0]) && eqStr(b,set1[1]);
+      const ok2 = eqStr(a,set2[0]) && eqStr(b,set2[1]);
+      // Some items (like デンプン/青紫) accept any of the tokens if they match categories.
+      const any = answers;
+      const ok3 = includesAny(a, any) && includesAny(b, any) && !eqStr(a,b);
+      correct = ok1 || ok2 || ok3;
+    }
+
+    if(type === 'radio'){
+      const ans = sec.dataset.answer;
+      const checked = sec.querySelector('input[type=radio]:checked');
+      correct = checked && checked.value === ans;
+    }
+
+    if(type === 'dropdowns'){
+      const key = JSON.parse(sec.dataset.answer);
+      const selects = sec.querySelectorAll('select');
+      const names = ["A","B","C"];
+      correct = Array.from(selects).every((sel,i)=> sel.value === key[names[i]]);
+    }
+
+    if(type === 'numeric'){
+      const tar = parseFloat(sec.dataset.answerNum);
+      const tol = parseFloat(sec.dataset.tol || "0");
+      const v = parseFloat(sec.querySelector('input[type=text]').value);
+      if(!Number.isNaN(v)){
+        correct = Math.abs(v - tar) <= tol;
+      } else {
+        correct = false;
+      }
+    }
+
+    if(correct){
+      ok++;
+      res.innerHTML = '<span class="ok">正解</span>';
+    }else{
+      res.innerHTML = '<span class="ng">不正解</span>';
+      if(model) model.classList.remove('hide');
+    }
+  });
+
+  const head = document.querySelector('header .small');
+  const rate = total ? Math.round(ok/total*100) : 0;
+  head.textContent = `採点結果：${ok} / ${total}（正答率 ${rate}%）｜合計点：${ok} 点（満点 ${total} 点）`;
+}
+
+function showAll(){
+  document.querySelectorAll('.model').forEach(m=>m.classList.remove('hide'));
+}
+
+function resetAll(){
+  document.querySelectorAll('input[type=text]').forEach(i=>i.value="");
+  document.querySelectorAll('input[type=radio]').forEach(r=>r.checked=false);
+  document.querySelectorAll('select').forEach(s=>s.selectedIndex=0);
+  document.querySelectorAll('.result').forEach(r=>r.textContent="");
+  document.querySelector('header .small').textContent = "自動採点・オフライン対応／表記ゆれ（漢字・かな・記号）をある程度許容";
+  document.querySelectorAll('.model').forEach(m=>m.classList.add('hide'));
+}
+
+function shuffle(){
+  const container = document.querySelector('main');
+  const blocks = Array.from(document.querySelectorAll('section.q')).filter(s=>s.dataset.type!=="info");
+  for(let i=blocks.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    const a = blocks[i], b = blocks[j];
+    container.insertBefore(a, b);
+  }
+}
+
+document.getElementById('gradeBtn').addEventListener('click', grade);
+document.getElementById('showBtn').addEventListener('click', showAll);
+document.getElementById('resetBtn').addEventListener('click', resetAll);
+document.getElementById('shuffleBtn').addEventListener('click', shuffle);
+</script>
+</body>
+</html>
