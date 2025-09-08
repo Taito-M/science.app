@@ -1,42 +1,220 @@
 <!doctype html>
-<meta charset="UTF-8">
-<title>アプリ集（自動一覧）</title>
-<h1>アプリ一覧（自動）</h1>
-<ul id="list"><li>読み込み中…</li></ul>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>science.app — リポジトリ一覧</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 24px; line-height: 1.6; }
+    h1 { margin: 0 0 8px; }
+    .muted { color: #666; font-size: 14px; margin-bottom: 16px; }
+    .panel { max-width: 900px; margin: 0 auto 28px; padding: 16px 20px; border: 1px solid #e5e5e5; border-radius: 12px; }
+    details { margin: 6px 0; }
+    ul.tree, ul.tree ul { list-style: none; padding-left: 18px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .file, .dir { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dir > button { all: unset; cursor: pointer; }
+    .icon { width: 1.2em; display: inline-block; text-align: center; }
+    a { text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .links { font-size: 12px; margin-left: 8px; color:#666; }
+    .links a { color:#666; }
+    .btn { display:inline-block; padding: 8px 12px; border:1px solid #ccc; border-radius:8px; cursor:pointer; background:#fafafa; }
+    .btn:active { transform: translateY(1px); }
+    #status { font-size: 13px; color:#666; margin-left:8px; }
+    .list-flat li { margin: 4px 0; }
+    .tag { font-size: 11px; background:#f0f0f0; border-radius:6px; padding:2px 6px; margin-left:6px; }
+    noscript { color:#b00020; }
+  </style>
+</head>
+<body>
+  <h1>science.app</h1>
+  <div class="muted">このページは GitHub API を使って <code>Taito-M/science.app</code>（branch: <code>main</code>）の内容を表示します。</div>
+
+  <div class="panel">
+    <h2>① ツリー表示（フォルダはクリックで展開）</h2>
+    <div id="tree">読み込み中…</div>
+    <div class="muted">※ フォルダ名をクリックすると中身を読み込みます（必要なときだけAPIを呼ぶので軽量）。</div>
+  </div>
+
+  <div class="panel">
+    <h2>② HTML だけを全部列挙</h2>
+    <button id="btnHtml" class="btn">HTML一覧を作る</button><span id="status"></span>
+    <ul id="htmlList" class="list-flat"></ul>
+    <div class="muted">※ 公開APIは未認証で約60回/時の制限あり。大きなリポジトリだと一時的に制限に近づくことがあります。</div>
+  </div>
+
+  <noscript>JavaScript を有効にするとリストが表示されます。</noscript>
 
 <script>
-const owner = "Taito-M";
-const repo  = "science.app";
-const branch = "main"; // 必要に応じて変更
+const owner  = "Taito-M";
+const repo   = "science.app";
+const branch = "main";
 
-async function listRootHtml() {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("GitHub API error");
-  const items = await res.json();
+const GH_API_BASE = `https://api.github.com/repos/${owner}/${repo}/contents`;
+const PAGES_BASE  = `https://${owner.toLowerCase()}.github.io/${repo}/`;
+const BLOB_BASE   = `https://github.com/${owner}/${repo}/blob/${branch}/`;
 
-  const htmlFiles = items.filter(x => x.type === "file" && /\.html?$/i.test(x.name));
-  htmlFiles.sort((a,b) => a.name.localeCompare(b.name, "ja"));
+// 各パス区切りごとに安全にエンコード
+function encPath(path) {
+  return path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+function apiUrl(path="") {
+  const p = encPath(path);
+  return `${GH_API_BASE}${p ? `/${p}` : ""}?ref=${encodeURIComponent(branch)}`;
+}
+function pagesUrl(path) { return PAGES_BASE + encPath(path); }
+function blobUrl(path)  { return BLOB_BASE  + encPath(path); }
 
-  const ul = document.getElementById("list");
-  ul.innerHTML = "";
-  for (const f of htmlFiles) {
+async function fetchDir(path="") {
+  const res = await fetch(apiUrl(path), { headers: { "Accept": "application/vnd.github.v3+json" } });
+  if (!res.ok) throw new Error(`GitHub API error (${res.status}) at ${path || "/"}`);
+  return res.json();
+}
+
+function makeTreeNode(item, fullPath, ul) {
+  if (item.type === "dir") {
     const li = document.createElement("li");
-    const a  = document.createElement("a");
-    a.textContent = f.name; // 表示名
-    // 日本語ファイル名でも壊れないようにリンク先はエンコード
-    a.href = "./" + encodeURIComponent(f.name);
-    li.appendChild(a);
-    ul.appendChild(li);
-  }
+    li.className = "dir";
+    const row = document.createElement("div");
+    row.className = "row";
+    const btn = document.createElement("button");
+    btn.innerHTML = `<span class="icon">📁</span><strong>${item.name}</strong>`;
+    btn.setAttribute("aria-expanded", "false");
+    row.appendChild(btn);
+    li.appendChild(row);
+    const child = document.createElement("ul");
+    child.className = "tree";
+    child.style.display = "none";
+    li.appendChild(child);
 
-  if (htmlFiles.length === 0) {
-    ul.innerHTML = "<li>（ルート直下に .html がありません）</li>";
+    let loaded = false;
+    btn.addEventListener("click", async () => {
+      const expanded = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!expanded));
+      child.style.display = expanded ? "none" : "block";
+      if (!loaded && !expanded) {
+        const loading = document.createElement("li");
+        loading.textContent = "読み込み中…";
+        child.appendChild(loading);
+        try {
+          const items = await fetchDir(fullPath);
+          child.innerHTML = "";
+          items.sort((a,b) => (a.type === b.type)
+            ? a.name.localeCompare(b.name, "ja")
+            : (a.type === "dir" ? -1 : 1));
+          for (const it of items) {
+            const p = fullPath ? `${fullPath}/${it.name}` : it.name;
+            makeTreeNode(it, p, child);
+          }
+        } catch (e) {
+          child.innerHTML = "";
+          const err = document.createElement("li");
+          err.textContent = `読み込み失敗：${e.message}`;
+          child.appendChild(err);
+        }
+        loaded = true;
+      }
+    });
+    ul.appendChild(li);
+  } else if (item.type === "file") {
+    const li = document.createElement("li");
+    li.className = "file";
+    const row = document.createElement("div");
+    row.className = "row";
+    const isHtml = /\.html?$/i.test(item.name);
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.textContent = isHtml ? "🧩" : "📄";
+    const a = document.createElement("a");
+    a.textContent = item.name;
+    a.href = isHtml ? pagesUrl(fullPath) : blobUrl(fullPath);
+    a.title = isHtml ? "Open on GitHub Pages" : "Open on GitHub";
+    a.target = "_blank";
+    row.append(icon, a);
+
+    const small = document.createElement("span");
+    small.className = "links";
+    const pagesLink = document.createElement("a");
+    pagesLink.href = pagesUrl(fullPath); pagesLink.target = "_blank"; pagesLink.textContent = "Pages";
+    const ghLink = document.createElement("a");
+    ghLink.href = blobUrl(fullPath); ghLink.target = "_blank"; ghLink.textContent = "GitHub";
+    small.append(" (", pagesLink, " / ", ghLink, ")");
+    row.appendChild(small);
+
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = item.name.split(".").pop().toLowerCase();
+    row.appendChild(tag);
+
+    li.appendChild(row);
+    ul.appendChild(li);
   }
 }
 
-listRootHtml().catch(() => {
-  document.getElementById("list").innerHTML =
-    "<li>一覧の取得に失敗しました。手動リンクをご利用ください。</li>";
-});
+async function buildRootTree() {
+  const container = document.getElementById("tree");
+  container.innerHTML = "";
+  const ul = document.createElement("ul");
+  ul.className = "tree";
+  container.appendChild(ul);
+  try {
+    const items = await fetchDir("");
+    items.sort((a,b) => (a.type === b.type)
+      ? a.name.localeCompare(b.name, "ja")
+      : (a.type === "dir" ? -1 : 1));
+    for (const it of items) makeTreeNode(it, it.name, ul);
+  } catch (e) {
+    container.textContent = `読み込み失敗：${e.message}`;
+  }
+}
+
+async function listAllHtml() {
+  const status = document.getElementById("status");
+  const out = document.getElementById("htmlList");
+  status.textContent = "走査中…";
+  out.innerHTML = "";
+
+  const queue = [""];
+  const htmlFiles = [];
+  try {
+    while (queue.length) {
+      const path = queue.shift();
+      status.textContent = `走査中: /${path}`;
+      const items = await fetchDir(path);
+      for (const it of items) {
+        const p = path ? `${path}/${it.name}` : it.name;
+        if (it.type === "dir") queue.push(p);
+        else if (/\.html?$/i.test(it.name)) htmlFiles.push(p);
+      }
+    }
+    htmlFiles.sort((a,b)=>a.localeCompare(b, "ja"));
+    for (const p of htmlFiles) {
+      const li = document.createElement("li");
+      const a  = document.createElement("a");
+      a.href = pagesUrl(p);
+      a.target = "_blank";
+      a.textContent = p;
+      li.appendChild(a);
+
+      const small = document.createElement("span");
+      small.className = "links";
+      const gh = document.createElement("a");
+      gh.href = blobUrl(p);
+      gh.target = "_blank";
+      gh.textContent = "GitHub";
+      small.append(" (", gh, ")");
+      li.appendChild(small);
+      out.appendChild(li);
+    }
+    status.textContent = `完了（${htmlFiles.length} 件）`;
+  } catch (e) {
+    status.textContent = `失敗：${e.message}`;
+  }
+}
+
+document.getElementById("btnHtml").addEventListener("click", listAllHtml);
+buildRootTree();
 </script>
+</body>
+</html>
