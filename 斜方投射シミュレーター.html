@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>斜方投射シミュレーター</title>
+  <style>
+    :root{
+      --bg:#0b0c10; --panel:#121419; --ink:#e8eef2; --muted:#a9b4c2; --accent:#5cc8ff; --accent2:#ff7a90;
+      --ok:#59f; --warn:#fb3;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#0f1117);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;}
+    .app{max-width:1100px;margin:24px auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    header h1{font-size:clamp(18px,2.8vw,28px);margin:0;font-weight:700;letter-spacing:.02em}
+    header .sub{color:var(--muted);font-size:12px}
+
+    .grid{display:grid;grid-template-columns:1.3fr 2fr;gap:16px}
+    @media (max-width:900px){.grid{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg,var(--panel),#0e1116);border:1px solid #1b1f2a;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
+    .card .body{padding:14px 16px}
+
+    .controls{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    @media (max-width:980px){.controls{grid-template-columns:repeat(2,1fr)}}
+    .field{display:flex;flex-direction:column;gap:6px;background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:10px}
+    .field label{font-size:12px;color:var(--muted)}
+    .field input[type="number"], .field input[type="range"]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a3344;background:#0b1018;color:var(--ink)}
+    .field input[type="range"]{padding:0}
+    .row{display:flex;gap:8px;align-items:center}
+    .row .spacer{flex:1}
+
+    .btns{display:flex;gap:8px;flex-wrap:wrap}
+    button{border:none;border-radius:12px;padding:10px 14px;font-weight:600;color:#0b0c10;background:var(--accent);cursor:pointer}
+    button.secondary{background:#2a3344;color:#e6eef6}
+    button.warn{background:var(--warn);color:#241a00}
+    button:disabled{opacity:.5;cursor:not-allowed}
+
+    .canvas-wrap{position:relative;border-bottom-left-radius:16px;border-bottom-right-radius:16px;overflow:hidden}
+    canvas{width:100%;height:520px;display:block;background:linear-gradient(180deg,#0a0f16,#0a0d13)}
+
+    .info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    @media (max-width:720px){.info{grid-template-columns:repeat(2,1fr)}}
+    .stat{background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:12px}
+    .stat .k{font-size:12px;color:var(--muted)}
+    .stat .v{font-weight:700;font-size:18px}
+
+    .note{font-size:12px;color:var(--muted);margin-top:6px}
+
+    /* ▼ 数値入力の上下ボタン（スピナー）を非表示：対象は .textlike のみ ▼ */
+    input.textlike[type=number]::-webkit-outer-spin-button,
+    input.textlike[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+    input.textlike[type=number]{ -moz-appearance:textfield; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>斜方投射シミュレーター <span class="sub">（空気抵抗なし / 2D）</span></h1>
+      </div>
+      <div class="btns">
+        <button id="playBtn" class="secondary" title="アニメ再生/一時停止">▶︎ 再生</button>
+        <button id="drawBtn" title="パラメータで再描画">描画</button>
+        <button id="resetBtn" class="warn" title="初期値に戻す">リセット</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="body">
+          <div class="controls">
+            <!-- v0 number only (textlike) -->
+            <div class="field">
+              <label for="v0">初速度 v₀ (m/s)</label>
+              <input id="v0" class="textlike" inputmode="decimal" type="number" step="any" min="0" max="120" value="20" />
+            </div>
+            <!-- angle number only (textlike) -->
+            <div class="field">
+              <label for="angle">射出角 θ (°)</label>
+              <input id="angle" class="textlike" inputmode="decimal" type="number" step="any" min="0" max="90" value="45" />
+            </div>
+            <!-- mass number only (textlike) -->
+            <div class="field">
+              <label for="mass">質量 m (kg)</label>
+              <input id="mass" class="textlike" inputmode="decimal" type="number" step="any" min="0" max="100" value="1.0" />
+            </div>
+            <!-- gravity number only (textlike) -->
+            <div class="field">
+              <label for="grav">重力加速度 g (m/s²)</label>
+              <input id="grav" class="textlike" inputmode="decimal" type="number" step="any" min="1" max="20" value="9.81" />
+            </div>
+            <!-- arrows (keep slider + number) -->
+            <div class="field">
+              <label for="arrows">ベクトル数（矢印）</label>
+              <div class="row" style="gap:8px">
+                <input id="arrows" type="range" min="0" max="30" value="12" style="flex:1" />
+                <input id="arrowsNum" type="number" min="0" max="30" value="12" style="width:80px" />
+              </div>
+              <div class="row"><small class="muted" id="arrowCount">12 本</small><span class="spacer"></span></div>
+            </div>
+            <!-- options -->
+            <div class="field">
+              <label>表示オプション</label>
+              <div class="row"><input id="showVectors" type="checkbox" checked /><label for="showVectors">速度ベクトルを表示</label></div>
+              <div class="row"><input id="showGrid" type="checkbox" checked /><label for="showGrid">グリッド/目盛</label></div>
+            </div>
+          </div>
+          <div class="note">※ このモデルでは空気抵抗を無視しています。<strong>質量は軌跡に影響しません</strong>（エネルギーや運動量の計算には使用可能）。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="canvas-wrap"><canvas id="cv" aria-label="斜方投射 シミュレーションキャンバス"></canvas></div>
+        <div class="body info" id="info">
+          <div class="stat"><div class="k">飛行時間 T</div><div class="v" id="tFlight">– s</div></div>
+          <div class="stat"><div class="k">到達距離 R</div><div class="v" id="range">– m</div></div>
+          <div class="stat"><div class="k">最高到達点 H</div><div class="v" id="hMax">– m</div></div>
+          <div class="stat"><div class="k">初期速度成分 (vₓ, vᵧ)</div><div class="v" id="vcomps">–</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (()=>{
+    const el = id=>document.getElementById(id);
+    const cv = el('cv');
+    const ctx = cv.getContext('2d');
+
+    // Number inputs only
+    const v0El = el('v0');
+    const angEl = el('angle');
+    const mEl  = el('mass');
+    const gEl  = el('grav');
+
+    // Arrows slider + number
+    const arrowsEl    = el('arrows');
+    const arrowsNumEl = el('arrowsNum');
+
+    const showVecEl = el('showVectors');
+    const showGridEl= el('showGrid');
+
+    const tFlightEl= el('tFlight');
+    const rangeEl  = el('range');
+    const hMaxEl   = el('hMax');
+    const vcompsEl = el('vcomps');
+    const arrowCountText= el('arrowCount');
+
+    const playBtn = el('playBtn');
+    const drawBtn = el('drawBtn');
+    const resetBtn= el('resetBtn');
+
+    // State
+    let state = {
+      v0: 20,
+      angleDeg: 45,
+      m: 1,
+      g: 9.81,
+      samples: [], // {t,x,y,vx,vy}
+      T: 0,
+      R: 0,
+      H: 0,
+      arrows: parseInt(arrowsEl.value,10),
+      showVectors: true,
+      showGrid: true,
+    };
+
+    let world = {xMax: 10, yMax: 10, pad: 48, scaleX:1, scaleY:1};
+
+    // Animation
+    let anim = { playing:false, t:0, startedAt: null };
+
+    // Helpers
+    const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+    const toRad = deg=>deg*Math.PI/180;
+    const fmt = (x, n=3)=> (Number.isFinite(x)? x.toFixed(n): '–');
+
+    function niceStep(maxVal){
+      if(maxVal<=0) return 1;
+      const rough = maxVal/6;
+      const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+      const n = rough/pow;
+      let step;
+      if(n<=1) step = 1*pow; else if(n<=2) step = 2*pow; else if(n<=5) step = 5*pow; else step = 10*pow;
+      return step;
+    }
+
+    function compute(){
+      state.v0 = clamp(parseFloat(v0El.value)||0, parseFloat(v0El.min)||0, parseFloat(v0El.max)||1e9);
+      state.angleDeg = clamp(parseFloat(angEl.value)||0, 0, 90);
+      state.m  = clamp(parseFloat(mEl.value)||0, parseFloat(mEl.min)||0, parseFloat(mEl.max)||1e9);
+      state.g  = clamp(parseFloat(gEl.value)||9.81, parseFloat(gEl.min)||0.01, parseFloat(gEl.max)||100);
+      state.arrows = parseInt(arrowsEl.value,10);
+      state.showVectors = !!showVecEl.checked;
+      state.showGrid = !!showGridEl.checked;
+
+      const th = toRad(state.angleDeg);
+      const v0x = state.v0 * Math.cos(th);
+      const v0y = state.v0 * Math.sin(th);
+
+      // Flight metrics（理論式）
+      const T2 = (state.v0===0? 0 : (2*v0y)/state.g);
+      state.T = Math.max(0, T2);
+      state.R = v0x * state.T;
+      state.H = (v0y*v0y)/(2*state.g);
+
+      // World extents with margins（角度に依存しない最大値ベース: Rmax = v0^2/g, Hmax = v0^2/(2g)）
+      const Rmax = (state.v0*state.v0)/state.g;
+      const Hmax = (state.v0*state.v0)/(2*state.g);
+      world.xMax = Math.max(1, Rmax*1.05);
+      world.yMax = Math.max(1, Hmax*1.2);
+
+      // Samples
+      const N = 420;
+      const samples = [];
+      const Ttot = Math.max(0.0001, state.T);
+      for(let i=0;i<=N;i++){
+        const t = Ttot * (i/N);
+        const x = v0x * t;
+        const y = v0y * t - 0.5*state.g*t*t;
+        const vx = v0x;
+        const vy = v0y - state.g*t;
+        samples.push({t,x:Math.max(0,x),y:Math.max(0,y),vx,vy});
+      }
+      state.samples = samples;
+
+      // UI stats
+      tFlightEl.textContent = fmt(state.T,3)+" s";
+      rangeEl.textContent = fmt(state.R,3)+" m";
+      hMaxEl.textContent = fmt(state.H,3)+" m";
+      vcompsEl.textContent = `(${fmt(v0x,3)}, ${fmt(v0y,3)}) m/s`;
+    }
+
+    function resizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const rect = cv.getBoundingClientRect();
+      cv.width = Math.round(rect.width * dpr);
+      cv.height = Math.round(rect.height * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+      updateScales();
+      draw();
+    }
+
+    function updateScales(){
+      const pad = world.pad;
+      const w = cv.clientWidth, h = cv.clientHeight;
+      // 等方スケール（x,yの縮尺を同じにして、見た目の角度=入力角度）
+      const sx = (w - pad*2) / world.xMax;
+      const sy = (h - pad*2) / world.yMax;
+      const s = Math.max(0.0001, Math.min(sx, sy));
+      world.scaleX = s;
+      world.scaleY = s;
+    }
+
+    function wx(x){ return world.pad + x*world.scaleX; }
+    function wy(y){ const h=cv.clientHeight; return h - world.pad - y*world.scaleY; }
+
+    function clear(){ ctx.clearRect(0,0,cv.clientWidth,cv.clientHeight); }
+
+    function drawAxes(){
+      const w = cv.clientWidth, h = cv.clientHeight, pad=world.pad;
+
+      if(state.showGrid){
+        const stepX = niceStep(world.xMax);
+        const stepY = niceStep(world.yMax);
+        ctx.save();
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(140,160,180,.18)';
+        for(let x=0;x<=world.xMax+1e-6;x+=stepX){
+          const X=wx(x); ctx.beginPath(); ctx.moveTo(X, h-pad); ctx.lineTo(X, pad); ctx.stroke();
+        }
+        for(let y=0;y<=world.yMax+1e-6;y+=stepY){
+          const Y=wy(y); ctx.beginPath(); ctx.moveTo(pad, Y); ctx.lineTo(w-pad, Y); ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // axes
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth=1.5;
+      // x-axis (ground y=0)
+      ctx.beginPath(); ctx.moveTo(world.pad, wy(0)); ctx.lineTo(w-world.pad, wy(0)); ctx.stroke();
+      // y-axis (x=0)
+      ctx.beginPath(); ctx.moveTo(wx(0), h-world.pad); ctx.lineTo(wx(0), world.pad); ctx.stroke();
+
+      // labels
+      ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font='12px ui-sans-serif, system-ui';
+      ctx.fillText('x (m)', w-world.pad-36, wy(0)-6);
+      ctx.fillText('y (m)', wx(0)+6, world.pad+14);
+      ctx.restore();
+    }
+
+    function drawTrajectory(){
+      const pts = state.samples;
+      if(!pts.length) return;
+      ctx.save();
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--accent') || '#5cc8ff';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(wx(pts[0].x), wy(pts[0].y));
+      for(let i=1;i<pts.length;i++) ctx.lineTo(wx(pts[i].x), wy(pts[i].y));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawVelocityArrows(){
+      if(!state.showVectors) return;
+      const pts = state.samples; if(!pts.length) return;
+      const n = state.arrows; if(n<=0) return;
+      const w = cv.clientWidth;
+      const baseLen = Math.max(30, Math.min(100, w * 0.12));
+
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--accent2') || '#ff7a90';
+      ctx.fillStyle = ctx.strokeStyle;
+
+      const step = Math.max(1, Math.floor(pts.length / (n+1)));
+      const sx = world.scaleX, sy = world.scaleY;
+
+      for(let i=step;i<pts.length-1;i+=step){
+        const p = pts[i];
+        const px = wx(p.x), py = wy(p.y);
+        let svx = p.vx * sx, svy = -p.vy * sy; // canvas Y down
+        const mag = Math.hypot(svx, svy) || 1e-6;
+        svx/=mag; svy/=mag;
+        const len = baseLen * (Math.hypot(p.vx, p.vy) / Math.max(1e-6, state.v0));
+        const ex = px + svx * len; const ey = py + svy * len;
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(ex,ey); ctx.stroke();
+        const ah = 10, aw = 6; // arrow head
+        const nx = -svy, ny = svx;
+        ctx.beginPath();
+        ctx.moveTo(ex,ey);
+        ctx.lineTo(ex - svx*ah + nx*aw, ey - svy*ah + ny*aw);
+        ctx.lineTo(ex - svx*ah - nx*aw, ey - svy*ah - ny*aw);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawBallAtTime(t){
+      const th = toRad(state.angleDeg);
+      const v0x = state.v0 * Math.cos(th);
+      const v0y = state.v0 * Math.sin(th);
+      const x = v0x * t;
+      const y = Math.max(0, v0y * t - 0.5*state.g*t*t);
+      const vx = v0x, vy = v0y - state.g*t;
+
+      const px = wx(Math.min(x, world.xMax));
+      const py = wy(Math.min(y, world.yMax));
+
+      ctx.save();
+      ctx.fillStyle = 'white';
+      ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2); ctx.fill();
+
+      if(state.showVectors){
+        const sx = world.scaleX, sy = world.scaleY;
+        let svx = vx * sx, svy = -vy * sy;
+        const mag = Math.hypot(svx, svy) || 1e-6; svx/=mag; svy/=mag;
+        const w = cv.clientWidth; const baseLen = Math.max(36, Math.min(110, w*0.12));
+        const len = baseLen * (Math.hypot(vx,vy)/Math.max(1e-6,state.v0));
+        const ex = px + svx*len, ey = py + svy*len;
+        ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--accent2') || '#ff7a90';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(ex,ey); ctx.stroke();
+        const ah=11, aw=7; ctx.beginPath();
+        ctx.moveTo(ex,ey);
+        ctx.lineTo(ex - svx*ah + (-svy)*aw, ey - svy*ah + (svx)*aw);
+        ctx.lineTo(ex - svx*ah - (-svy)*aw, ey - svy*ah - (svx)*aw);
+        ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function draw(){
+      clear();
+      drawAxes();
+      drawTrajectory();
+      drawVelocityArrows();
+      if(anim.playing){
+        const t = Math.min(state.T, anim.t);
+        drawBallAtTime(t);
+      }
+    }
+
+    function step(ts){
+      if(!anim.startedAt) anim.startedAt = ts;
+      const dt = (ts - anim.startedAt)/1000; // seconds since last frame
+      anim.startedAt = ts;
+      if(anim.playing){
+        anim.t += dt;
+        if(anim.t >= state.T){
+          anim.t = state.T; anim.playing = false; playBtn.textContent = '▶︎ 再生';
+        }
+        draw();
+      }
+      requestAnimationFrame(step);
+    }
+
+    function setDefaults(){
+      v0El.value = 20;
+      angEl.value = 45;
+      mEl.value = 1;
+      gEl.value = 9.81;
+      arrowsEl.value = 12; arrowsNumEl.value = 12; arrowCountText.textContent = '12 本';
+      showVecEl.checked = true; showGridEl.checked = true;
+    }
+
+    // 4つの数値入力で、ホイール操作による誤入力を防止（手入力中心に）
+    [v0El, angEl, mEl, gEl].forEach(inp=>{
+      inp.addEventListener('wheel', e=> e.preventDefault(), {passive:false});
+    });
+
+    // Events
+    ;[v0El, angEl, mEl, gEl].forEach(inp=>{
+      inp.addEventListener('input', ()=> drawBtn.click());
+      inp.addEventListener('change', ()=> drawBtn.click());
+    });
+
+    arrowsEl.addEventListener('input', ()=>{ arrowsNumEl.value = arrowsEl.value; arrowCountText.textContent = `${arrowsEl.value} 本`; drawBtn.click(); });
+    arrowsNumEl.addEventListener('input', ()=>{ let v = clamp(parseInt(arrowsNumEl.value||0,10), parseInt(arrowsEl.min,10), parseInt(arrowsEl.max,10)); arrowsEl.value = v; arrowsNumEl.value = v; arrowCountText.textContent = `${v} 本`; drawBtn.click(); });
+
+    [showVecEl, showGridEl].forEach(inp=>{ inp.addEventListener('change', ()=> drawBtn.click()); });
+
+    playBtn.addEventListener('click', ()=>{
+      if(state.T<=0){ return; }
+      anim.playing = !anim.playing;
+      if(anim.playing){
+        if(anim.t>=state.T-1e-6){ anim.t = 0; }
+        playBtn.textContent = '⏸ 一時停止';
+      }else{
+        playBtn.textContent = '▶︎ 再生';
+      }
+      anim.startedAt = null; // reset frame timer
+      draw();
+    });
+
+    drawBtn.addEventListener('click', ()=>{
+      anim.playing = false; playBtn.textContent = '▶︎ 再生'; anim.t = 0; anim.startedAt = null;
+      compute(); updateScales(); draw();
+    });
+
+    resetBtn.addEventListener('click', ()=>{ setDefaults(); drawBtn.click(); });
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // Boot
+    setDefaults();
+    compute();
+    resizeCanvas();
+    requestAnimationFrame(step);
+  })();
+  </script>
+</body>
+</html>
