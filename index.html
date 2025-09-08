@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="UTF-8">
+<title>アプリ集（自動一覧）</title>
+<h1>アプリ一覧（自動）</h1>
+<ul id="list"><li>読み込み中…</li></ul>
+
+<script>
+const owner = "Taito-M";
+const repo  = "science.app";
+const branch = "main"; // 必要に応じて変更
+
+async function listRootHtml() {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("GitHub API error");
+  const items = await res.json();
+
+  const htmlFiles = items.filter(x => x.type === "file" && /\.html?$/i.test(x.name));
+  htmlFiles.sort((a,b) => a.name.localeCompare(b.name, "ja"));
+
+  const ul = document.getElementById("list");
+  ul.innerHTML = "";
+  for (const f of htmlFiles) {
+    const li = document.createElement("li");
+    const a  = document.createElement("a");
+    a.textContent = f.name; // 表示名
+    // 日本語ファイル名でも壊れないようにリンク先はエンコード
+    a.href = "./" + encodeURIComponent(f.name);
+    li.appendChild(a);
+    ul.appendChild(li);
+  }
+
+  if (htmlFiles.length === 0) {
+    ul.innerHTML = "<li>（ルート直下に .html がありません）</li>";
+  }
+}
+
+listRootHtml().catch(() => {
+  document.getElementById("list").innerHTML =
+    "<li>一覧の取得に失敗しました。手動リンクをご利用ください。</li>";
+});
+</script>
