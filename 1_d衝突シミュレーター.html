@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1D 衝突シミュレーター（高校物理）</title>
+  <style>
+    :root{
+      --bg:#0b0c10; --panel:#121419; --ink:#e8eef2; --muted:#a9b4c2; --accent:#5cc8ff; --accent2:#ff7a90; --good:#4ade80; --warn:#fbbf24; --bad:#fb7185;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#0f1117);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif}
+    .app{max-width:1100px;margin:20px auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    header h1{margin:0;font-size:clamp(18px,2.6vw,28px)}
+    header .sub{color:var(--muted);font-size:12px}
+
+    .grid{display:grid;grid-template-columns:1.3fr 2fr;gap:16px}
+    @media (max-width:900px){.grid{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg,var(--panel),#0e1116);border:1px solid #1b1f2a;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .card .body{padding:14px 16px}
+
+    .controls{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    @media (max-width:980px){.controls{grid-template-columns:repeat(2,1fr)}}
+    .field{display:flex;flex-direction:column;gap:6px;background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:10px}
+    .field label{font-size:12px;color:var(--muted)}
+    input[type=number]{width:100%;padding:8px;border-radius:8px;border:1px solid #2a3344;background:#0b1018;color:var(--ink)}
+    select{width:100%;padding:8px;border-radius:8px;border:1px solid #2a3344;background:#0b1018;color:var(--ink)}
+
+    /* 手入力専用: スピナー非表示 & ホイール無効 */
+    input.textlike[type=number]::-webkit-outer-spin-button,
+    input.textlike[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+    input.textlike[type=number]{ -moz-appearance:textfield; }
+
+    .btns{display:flex;gap:8px;flex-wrap:wrap}
+    button{border:none;border-radius:12px;padding:10px 14px;font-weight:600;color:#0b0c10;background:var(--accent);cursor:pointer}
+    button.secondary{background:#2a3344;color:#e6eef6}
+    button.warn{background:var(--warn);color:#241a00}
+    button:disabled{opacity:.5;cursor:not-allowed}
+
+    .canvas-wrap{position:relative;border-bottom-left-radius:16px;border-bottom-right-radius:16px;overflow:hidden}
+    canvas{width:100%;height:520px;display:block;background:linear-gradient(180deg,#0a0f16,#0a0d13)}
+
+    .track-label{position:absolute;left:12px;top:10px;color:#c8d3e0;font-size:12px;opacity:.8}
+
+    .info{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    @media (max-width:900px){.info{grid-template-columns:repeat(2,1fr)}}
+    .stat{background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:12px}
+    .stat .k{font-size:12px;color:var(--muted)}
+    .stat .v{font-weight:700;font-size:18px}
+
+    .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+    .katex{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background: #0b1018; padding: 3px 6px; border-radius: 6px; border: 1px solid #1b2230; font-size: 12px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>1D 衝突シミュレーター <span class="sub">（e を用いた一次元2物体衝突 / 空気抵抗なし）</span></h1>
+      </div>
+      <div class="btns">
+        <button id="playBtn" class="secondary">▶︎ 再生</button>
+        <button id="stepBtn" class="secondary">1フレーム</button>
+        <button id="drawBtn">描画/計算</button>
+        <button id="resetBtn" class="warn">リセット</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="body">
+          <div class="controls">
+            <div class="field">
+              <label>プリセット</label>
+              <select id="preset">
+                <option value="head_on_equal">等質量・正面衝突（u1=+3, u2=-3）</option>
+                <option value="light_to_heavy">軽→重（m1=1, m2=3, u1=+4, u2=0）</option>
+                <option value="heavy_to_light">重→軽（m1=3, m2=1, u1=+4, u2=0）</option>
+                <option value="rear_end">追突（u1=+4, u2=+1）</option>
+                <option value="head_on_custom">正面（u1>0, u2<0 で設定）</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="m1">質量 m₁ (kg)</label>
+              <input class="textlike" id="m1" type="number" inputmode="decimal" step="any" min="0.01" value="1.0" />
+            </div>
+            <div class="field">
+              <label for="m2">質量 m₂ (kg)</label>
+              <input class="textlike" id="m2" type="number" inputmode="decimal" step="any" min="0.01" value="1.0" />
+            </div>
+            <div class="field">
+              <label for="u1">初速度 u₁ (m/s)</label>
+              <input class="textlike" id="u1" type="number" inputmode="decimal" step="any" value="3.0" />
+            </div>
+            <div class="field">
+              <label for="u2">初速度 u₂ (m/s)</label>
+              <input class="textlike" id="u2" type="number" inputmode="decimal" step="any" value="-3.0" />
+            </div>
+            <div class="field">
+              <label for="e">反発係数 e (0–1)</label>
+              <input class="textlike" id="e" type="number" inputmode="decimal" step="any" min="0" max="1" value="1.0" />
+            </div>
+            <div class="field">
+              <label for="length">トラック長 L (m)</label>
+              <input class="textlike" id="length" type="number" inputmode="decimal" step="any" min="10" value="24" />
+            </div>
+            <div class="field">
+              <label>オプション</label>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                <label><input id="showVectors" type="checkbox" checked> 速度ベクトル</label>
+                <label><input id="wallReflect" type="checkbox"> 端で反射（e=1）</label>
+                <label><input id="showGrid" type="checkbox" checked> グリッド</label>
+              </div>
+            </div>
+          </div>
+          <div class="note">
+            解析式（一次元・反発係数 <span class="katex">e</span>）:<br/>
+            <span class="katex">v₁ = \frac{m₁ - e m₂}{m₁+m₂}\,u₁ + \frac{(1+e) m₂}{m₁+m₂}\,u₂</span> 、
+            <span class="katex">v₂ = \frac{(1+e) m₁}{m₁+m₂}\,u₁ + \frac{m₂ - e m₁}{m₁+m₂}\,u₂</span><br/>
+            運動量は常に保存。<span class="katex">e=1</span> で力学的エネルギーも保存、<span class="katex">e<1</span> では一部散逸。
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="canvas-wrap">
+          <div class="track-label">+x → 進行方向（右）</div>
+          <canvas id="cv" aria-label="1D 衝突シミュレーション"></canvas>
+        </div>
+        <div class="body info">
+          <div class="stat"><div class="k">解析解 v₁, v₂</div><div class="v" id="vAnalytic">–</div></div>
+          <div class="stat"><div class="k">運動量（前→後）</div><div class="v" id="pCheck">–</div></div>
+          <div class="stat"><div class="k">運動エネルギー（前→後）</div><div class="v" id="kCheck">–</div></div>
+          <div class="stat"><div class="k">衝突回数</div><div class="v" id="hitCount">0</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (()=>{
+    const $ = id => document.getElementById(id);
+    const cv = $('cv');
+    const ctx = cv.getContext('2d');
+
+    // UI elements
+    const presetEl = $('preset');
+    const m1El=$('m1'), m2El=$('m2'), u1El=$('u1'), u2El=$('u2'), eEl=$('e'), LEl=$('length');
+    const showVecEl=$('showVectors'), wallEl=$('wallReflect'), gridEl=$('showGrid');
+    const playBtn=$('playBtn'), stepBtn=$('stepBtn'), drawBtn=$('drawBtn'), resetBtn=$('resetBtn');
+    const vAnalyticEl=$('vAnalytic'), pCheckEl=$('pCheck'), kCheckEl=$('kCheck'), hitCountEl=$('hitCount');
+
+    // Disable wheel to prevent accidental number changes
+    [m1El,m2El,u1El,u2El,eEl,LEl].forEach(inp=>inp.addEventListener('wheel', e=>e.preventDefault(), {passive:false}));
+
+    // State
+    const state = {
+      m1:1, m2:1,
+      u1: 3, u2: -3,
+      e:1,
+      L:24,
+      showVectors:true,
+      showGrid:true,
+      wall:false,
+      t:0,
+      hitCount:0,
+      // world render
+      pad: 56,
+      scale: 20, // px per meter (set in resize)
+      // blocks in meters
+      w1: 1.2, h1: 1.0, w2: 1.2, h2: 1.0,
+      x1: 6, x2: 18, // centers (m)
+      v1: 3, v2: -3,
+      playing:false,
+    };
+
+    // Helpers
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const fmt=(x,n=3)=>Number.isFinite(x)?x.toFixed(n):'–';
+
+    function readInputs(){
+      state.m1 = Math.max(0.01, parseFloat(m1El.value)||1);
+      state.m2 = Math.max(0.01, parseFloat(m2El.value)||1);
+      state.u1 = parseFloat(u1El.value)||0;
+      state.u2 = parseFloat(u2El.value)||0;
+      state.e  = clamp(parseFloat(eEl.value)||0, 0, 1);
+      eEl.value = state.e; // reflect clamp
+      state.L   = Math.max(10, parseFloat(LEl.value)||24);
+      state.showVectors = !!showVecEl.checked;
+      state.wall = !!wallEl.checked;
+      state.showGrid = !!gridEl.checked;
+    }
+
+    function applyPreset(){
+      switch(presetEl.value){
+        case 'head_on_equal':
+          m1El.value=1; m2El.value=1; u1El.value=3; u2El.value=-3; eEl.value=1; break;
+        case 'light_to_heavy':
+          m1El.value=1; m2El.value=3; u1El.value=4; u2El.value=0; eEl.value=1; break;
+        case 'heavy_to_light':
+          m1El.value=3; m2El.value=1; u1El.value=4; u2El.value=0; eEl.value=1; break;
+        case 'rear_end':
+          m1El.value=2; m2El.value=1.5; u1El.value=4; u2El.value=1; eEl.value=0.9; break;
+        case 'head_on_custom': default:
+          // keep current
+          break;
+      }
+      layoutInitial();
+      computeAnalytic();
+      draw();
+    }
+
+    function layoutInitial(){
+      readInputs();
+      // place blocks from left/right with some margin
+      state.x1 = state.L*0.25;
+      state.x2 = state.L*0.75;
+      state.v1 = state.u1;
+      state.v2 = state.u2;
+      state.t = 0; state.hitCount = 0; updateHitCount();
+    }
+
+    function computeAnalytic(){
+      readInputs();
+      const {m1,m2,u1,u2,e} = state;
+      const denom = (m1+m2);
+      const v1p = ((m1 - e*m2)/denom)*u1 + ((1+e)*m2/denom)*u2;
+      const v2p = ((1+e)*m1/denom)*u1 + ((m2 - e*m1)/denom)*u2;
+      vAnalyticEl.textContent = `(${fmt(v1p,3)}, ${fmt(v2p,3)}) m/s`;
+      const pBefore = m1*u1 + m2*u2;
+      const pAfter  = m1*v1p + m2*v2p;
+      pCheckEl.textContent = `${fmt(pBefore,3)} → ${fmt(pAfter,3)} kg·m/s`;
+      const kBefore = 0.5*m1*u1*u1 + 0.5*m2*u2*u2;
+      const kAfter  = 0.5*m1*v1p*v1p + 0.5*m2*v2p*v2p;
+      const ratio = kBefore>0? kAfter/kBefore : 0;
+      kCheckEl.textContent = `${fmt(kBefore,3)} → ${fmt(kAfter,3)} J  (${fmt(ratio*100,1)}%)`;
+    }
+
+    function updateHitCount(){ hitCountEl.textContent = state.hitCount.toString(); }
+
+    function resizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio||1);
+      const rect = cv.getBoundingClientRect();
+      cv.width = Math.round(rect.width*dpr);
+      cv.height= Math.round(rect.height*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      // choose scale so that track fits with padding
+      const w = cv.clientWidth, h=cv.clientHeight;
+      const usableW = w - state.pad*2;
+      state.scale = Math.max(10, usableW / state.L);
+      draw();
+    }
+
+    function X(x){ return state.pad + x*state.scale; }
+    function Y(y){ const h=cv.clientHeight; return h - state.pad - y*state.scale; }
+
+    function clear(){ ctx.clearRect(0,0,cv.clientWidth,cv.clientHeight); }
+
+    function drawGrid(){
+      if(!state.showGrid) return;
+      const w = cv.clientWidth, h=cv.clientHeight, pad=state.pad;
+      const step = niceStep(state.L);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(140,160,180,.18)'; ctx.lineWidth=1;
+      for(let x=0;x<=state.L+1e-6;x+=step){ const Xp=X(x); ctx.beginPath(); ctx.moveTo(Xp, h-pad); ctx.lineTo(Xp, pad); ctx.stroke(); }
+      // ground line
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(w-pad, Y(0)); ctx.stroke();
+      ctx.restore();
+    }
+
+    function niceStep(maxVal){
+      const rough = maxVal/8; const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+      const n=rough/pow; let step; if(n<=1) step=1*pow; else if(n<=2) step=2*pow; else if(n<=5) step=5*pow; else step=10*pow; return step;
+    }
+
+    function drawBlocks(){
+      const hLine = Y(0);
+      const yBase = hLine - 40; // pixels above ground
+      const s = state.scale;
+      // sizes in px
+      const w1 = state.w1*s, h1 = state.h1*s;
+      const w2 = state.w2*s, h2 = state.h2*s;
+      const x1p = X(state.x1) - w1/2;
+      const x2p = X(state.x2) - w2/2;
+
+      // block 1
+      ctx.save();
+      ctx.fillStyle = '#5cc8ff';
+      ctx.strokeStyle = '#93d9ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(x1p, yBase - h1, w1, h1, 10); ctx.fill(); ctx.stroke();
+      // label
+      ctx.fillStyle = '#0b0c10'; ctx.font='12px ui-sans-serif';
+      ctx.fillText(`m1=${fmt(state.m1,2)}kg`, x1p+6, yBase - h1 + 16);
+      ctx.fillText(`v1=${fmt(state.v1,2)}m/s`, x1p+6, yBase - h1 + 32);
+      // velocity arrow
+      if(state.showVectors){
+        drawArrow(X(state.x1), yBase - h1 - 10, X(state.x1 + Math.sign(state.v1)*Math.min(1.5,Math.abs(state.v1))), yBase - h1 - 10);
+      }
+      ctx.restore();
+
+      // block 2
+      ctx.save();
+      ctx.fillStyle = '#ff7a90';
+      ctx.strokeStyle = '#ff97aa'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(x2p, yBase - h2, w2, h2, 10); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#0b0c10'; ctx.font='12px ui-sans-serif';
+      ctx.fillText(`m2=${fmt(state.m2,2)}kg`, x2p+6, yBase - h2 + 16);
+      ctx.fillText(`v2=${fmt(state.v2,2)}m/s`, x2p+6, yBase - h2 + 32);
+      if(state.showVectors){
+        drawArrow(X(state.x2), yBase - h2 - 10, X(state.x2 + Math.sign(state.v2)*Math.min(1.5,Math.abs(state.v2))), yBase - h2 - 10);
+      }
+      ctx.restore();
+    }
+
+    function drawArrow(x1,y1,x2,y2){
+      ctx.save();
+      ctx.strokeStyle = '#eaeef5'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      const ang = Math.atan2(y2-y1,x2-x1); const L=10, W=6;
+      ctx.beginPath();
+      ctx.moveTo(x2,y2);
+      ctx.lineTo(x2 - L*Math.cos(ang) + W*Math.sin(ang), y2 - L*Math.sin(ang) - W*Math.cos(ang));
+      ctx.lineTo(x2 - L*Math.cos(ang) - W*Math.sin(ang), y2 - L*Math.sin(ang) + W*Math.cos(ang));
+      ctx.closePath(); ctx.fillStyle='#eaeef5'; ctx.fill();
+      ctx.restore();
+    }
+
+    function draw(){
+      clear();
+      drawGrid();
+      drawBlocks();
+      // end markers
+      const pad = state.pad; const h = cv.clientHeight;
+      ctx.save(); ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.setLineDash([6,6]);
+      ctx.beginPath(); ctx.moveTo(X(0), h-pad-60); ctx.lineTo(X(0), h-pad+6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(state.L), h-pad-60); ctx.lineTo(X(state.L), h-pad+6); ctx.stroke();
+      ctx.restore();
+    }
+
+    // Physics step with continuous-time collision resolution
+    function step(dt){
+      const {w1,w2} = state; // meters (widths)
+      // optional wall reflections before/after
+      let tRemain = dt;
+      // Could be multiple events within dt: handle up to 3 to avoid infinite loops
+      for(let iter=0; iter<3 && tRemain>1e-6; iter++){
+        // time to block-block collision within tRemain
+        const tCol = timeToBlockCollision(tRemain);
+        const tWall1 = state.wall ? timeToWallCollision(1, tRemain) : Infinity;
+        const tWall2 = state.wall ? timeToWallCollision(2, tRemain) : Infinity;
+        let tEvent = Math.min(tCol, tWall1, tWall2, tRemain);
+        // advance to event (or to end of dt if no event)
+        advance(tEvent);
+        tRemain -= tEvent;
+        if(Math.abs(tEvent - tCol) < 1e-6 && tCol !== Infinity){ // block collision
+          resolveBlockCollision(); state.hitCount++; updateHitCount();
+        } else if(Math.abs(tEvent - tWall1) < 1e-6 && tWall1 !== Infinity){
+          state.v1 *= -1; // e_wall = 1
+        } else if(Math.abs(tEvent - tWall2) < 1e-6 && tWall2 !== Infinity){
+          state.v2 *= -1; // e_wall = 1
+        }
+      }
+    }
+
+    function advance(t){ state.x1 += state.v1*t; state.x2 += state.v2*t; state.t += t; }
+
+    function timeToBlockCollision(dt){
+      // Solve when faces touch: x2 - x1 = (w1+w2)/2 with relative speed decreasing
+      const gap = (state.x2 - state.x1) - (state.w1 + state.w2)/2; // >0 if separated
+      const relv = (state.v2 - state.v1); // gap rate
+      if(gap <= 0 && relv >= 0) return Infinity; // already overlapping but moving apart
+      if(relv >= 0) return Infinity; // separating or stationary
+      const t = Math.max(0, gap / (-relv));
+      return (t>=0 && t<=dt) ? t : Infinity;
+    }
+
+    function timeToWallCollision(i, dt){
+      const x = i===1? state.x1 : state.x2;
+      const v = i===1? state.v1 : state.v2;
+      const w = i===1? state.w1 : state.w2;
+      const left = (w/2);
+      const right= state.L - (w/2);
+      if(Math.abs(v) < 1e-12) return Infinity;
+      let t=Infinity;
+      if(v<0){ // heading to left wall
+        t = (x - left)/(-v);
+      } else if(v>0){ // to right wall
+        t = (right - x)/(v);
+      }
+      return (t>=0 && t<=dt)? t : Infinity;
+    }
+
+    function resolveBlockCollision(){
+      const {m1,m2,e} = state;
+      const u1=state.v1, u2=state.v2;
+      const denom = (m1+m2);
+      const v1p = ((m1 - e*m2)/denom)*u1 + ((1+e)*m2/denom)*u2;
+      const v2p = ((1+e)*m1/denom)*u1 + ((m2 - e*m1)/denom)*u2;
+      state.v1 = v1p; state.v2 = v2p;
+    }
+
+    // Animation
+    let lastTs=null;
+    function raf(ts){
+      if(lastTs==null) lastTs = ts;
+      const dtReal = (ts - lastTs)/1000; lastTs = ts;
+      if(state.playing){
+        const dt = Math.min(0.04, dtReal); // cap
+        step(dt);
+        draw();
+      }
+      requestAnimationFrame(raf);
+    }
+
+    // Events
+    [m1El,m2El,u1El,u2El,eEl,LEl,showVecEl,wallEl,gridEl].forEach(inp=>{
+      inp.addEventListener('input', ()=>{ computeAnalytic(); draw(); });
+    });
+    presetEl.addEventListener('change', ()=>{ applyPreset(); });
+
+    playBtn.addEventListener('click', ()=>{
+      state.playing = !state.playing; playBtn.textContent = state.playing? '⏸ 一時停止':'▶︎ 再生';
+    });
+    stepBtn.addEventListener('click', ()=>{ if(!state.playing){ step(1/60); draw(); }});
+
+    drawBtn.addEventListener('click', ()=>{ layoutInitial(); computeAnalytic(); draw(); });
+    resetBtn.addEventListener('click', ()=>{ defaultSetup(); computeAnalytic(); draw(); });
+
+    function defaultSetup(){
+      m1El.value=1; m2El.value=1; u1El.value=3; u2El.value=-3; eEl.value=1; LEl.value=24;
+      showVecEl.checked = true; gridEl.checked = true; wallEl.checked = false;
+      presetEl.value = 'head_on_equal';
+      layoutInitial();
+    }
+
+    // Boot
+    function boot(){
+      defaultSetup();
+      computeAnalytic();
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      requestAnimationFrame(raf);
+    }
+    boot();
+  })();
+  </script>
+</body>
+</html>

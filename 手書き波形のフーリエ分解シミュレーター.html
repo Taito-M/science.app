@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>手書き波形のフーリエ分解シミュレーター</title>
+  <style>
+    :root{ --bg:#0b0c10; --panel:#121419; --ink:#e8eef2; --muted:#a9b4c2; --accent:#5cc8ff; --accent2:#ff7a90; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#0f1117);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif}
+    .app{max-width:1200px;margin:20px auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    header h1{margin:0;font-size:clamp(18px,2.6vw,28px)}
+    header .sub{color:var(--muted);font-size:12px}
+
+    .grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
+    @media (max-width:1020px){.grid{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg,var(--panel),#0e1116);border:1px solid #1b1f2a;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .card .body{padding:14px 16px}
+
+    .controls{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    @media (max-width:980px){.controls{grid-template-columns:repeat(2,1fr)}}
+    .field{display:flex;flex-direction:column;gap:6px;background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:10px}
+    .field label{font-size:12px;color:var(--muted)}
+    input[type=number], select{width:100%;padding:8px;border-radius:8px;border:1px solid #2a3344;background:#0b1018;color:var(--ink)}
+    .textlike::-webkit-outer-spin-button,.textlike::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+    .textlike{ -moz-appearance:textfield; }
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+    .btns{display:flex;gap:8px;flex-wrap:wrap}
+    button{border:none;border-radius:12px;padding:10px 14px;font-weight:600;color:#0b0c10;background:var(--accent);cursor:pointer}
+    button.secondary{background:#2a3344;color:#e6eef6}
+    button.warn{background:#fbbf24;color:#241a00}
+
+    .canvas-wrap{position:relative;border-bottom-left-radius:16px;border-bottom-right-radius:16px;overflow:hidden}
+    canvas{width:100%;display:block;background:linear-gradient(180deg,#0a0f16,#0a0d13)}
+    #wave{height:420px}
+    #spec{height:220px;border-top:1px solid #1b2230}
+    .hint{position:absolute;left:14px;top:10px;color:#c8d3e0;font-size:12px;opacity:.8}
+
+    .info{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    @media (max-width:900px){.info{grid-template-columns:1fr}}
+    .stat{background:#0f131b;border:1px solid #1b2230;border-radius:12px;padding:12px}
+    .stat .k{font-size:12px;color:var(--muted)}
+    .stat .v{font-weight:700;font-size:16px;word-break:break-all}
+
+    code.expr{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0b1018;padding:6px 8px;border-radius:8px;border:1px solid #1b2230;display:block;white-space:pre-wrap}
+    .note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>手書き波形のフーリエ分解 <span class="sub">（1周期を手描き → フーリエ係数 → 再構成）</span></h1>
+      </div>
+      <div class="btns">
+        <button id="analyzeBtn">変換（DFT）</button>
+        <button id="clearBtn" class="secondary">描画クリア</button>
+        <button id="resetBtn" class="warn">全リセット</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="canvas-wrap">
+          <div class="hint">上: 波形を1周期ぶんドラッグで描画（右クリック/長押しで消しゴム） / 下: 振幅スペクトル | θ は 0→2π に対応します</div>
+          <canvas id="wave" aria-label="波形キャンバス"></canvas>
+          <canvas id="spec" aria-label="スペクトルキャンバス"></canvas>
+        </div>
+        <div class="body">
+          <div class="note">描いた横幅が <strong>1周期</strong> です。左端 θ=0、右端 θ=2π に対応します。端点の段差は「周期連続化」で補正できます。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="body">
+          <div class="controls">
+            <div class="field">
+              <label>サンプル数 N（1周期）</label>
+              <select id="N">
+                <option>256</option>
+                <option selected>512</option>
+                <option>1024</option>
+                <option>2048</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>再構成に使う高調波 K（1..N/2）</label>
+              <div class="row">
+                <input id="Knum" class="textlike" type="number" inputmode="numeric" min="1" step="1" value="16" style="width:90px">
+                <input id="K" type="range" min="1" max="256" value="16" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Y軸レンジ（世界座標）</label>
+              <div class="row">
+                <label>ymin <input id="ymin" class="textlike" type="number" step="any" value="-1"></label>
+                <label>ymax <input id="ymax" class="textlike" type="number" step="any" value="+1"></label>
+              </div>
+              <div class="row"><button id="autoAxis" class="secondary">自動（描画から設定）</button></div>
+            </div>
+            <div class="field">
+              <label>オプション</label>
+              <div class="row">
+                <label><input id="enforcePeriodic" type="checkbox" checked> 周期連続化（端点を一致させる）</label>
+                <label><input id="removeMean" type="checkbox"> DC除去（平均0化）</label>
+                <label><input id="showRecon" type="checkbox" checked> 再構成波を表示</label>
+                <label><input id="showSamples" type="checkbox"> サンプル点を表示</label>
+                <label><input id="showGrid" type="checkbox" checked> グリッド</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="info">
+            <div class="stat"><div class="k">a₀ / RMSE</div><div class="v" id="a0rmse">–</div></div>
+            <div class="stat"><div class="k">式（K項）</div><div class="v"><code class="expr" id="seriesExpr">–</code></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (()=>{
+    const $ = id => document.getElementById(id);
+    const wave = $('wave');
+    const spec = $('spec');
+    const wctx = wave.getContext('2d');
+    const sctx = spec.getContext('2d');
+
+    // UI
+    const Nsel=$('N');
+    const Kslider=$('K'); const Knum=$('Knum');
+    const yminEl=$('ymin'); const ymaxEl=$('ymax');
+    const autoAxisBtn=$('autoAxis');
+    const enforceEl=$('enforcePeriodic'); const rmMeanEl=$('removeMean');
+    const showReconEl=$('showRecon'); const showSamplesEl=$('showSamples'); const showGridEl=$('showGrid');
+    const analyzeBtn=$('analyzeBtn'); const clearBtn=$('clearBtn'); const resetBtn=$('resetBtn');
+    const a0rmseEl=$('a0rmse'); const exprEl=$('seriesExpr');
+
+    // World (θ in [0,2π]) and y-range
+    const world = { thetaMin:0, thetaMax:Math.PI*2, ymin:-1, ymax:1, pad:56, scaleX:1, scaleY:1 };
+
+    // Paths drawn (screen px)
+    let paths=[]; // each: [{x,y,erase}]
+
+    // Samples and Fourier
+    let N = 512; // samples per period
+    let samples = []; // [{theta, y}]
+    let coeffs = null; // {a0, ak[], bk[], amp[], phase[]}
+    let K = 16;
+
+    // Pen
+    const pen = {down:false, erasing:false};
+
+    function resizeCanvases(){
+      const dpr = Math.max(1, window.devicePixelRatio||1);
+      for(const c of [wave,spec]){
+        const rect = c.getBoundingClientRect();
+        c.width = Math.round(rect.width*dpr);
+        c.height= Math.round(rect.height*dpr);
+        const ctx = c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+      }
+      updateScales();
+      drawAll();
+    }
+
+    function updateScales(){
+      const w = wave.clientWidth, h = wave.clientHeight;
+      world.scaleX = (w - world.pad*2) / (world.thetaMax - world.thetaMin);
+      world.scaleY = (h - world.pad*2) / (world.ymax - world.ymin);
+    }
+
+    function X(theta){ return world.pad + (theta-world.thetaMin)*world.scaleX; }
+    function Y(y){ const h=wave.clientHeight; return h - world.pad - (y-world.ymin)*world.scaleY; }
+    function thetaFromScreen(px){ const w=wave.clientWidth; return world.thetaMin + (px - world.pad)/world.scaleX; }
+    function yFromScreen(py){ const h=wave.clientHeight; return world.ymin + (h - world.pad - py)/world.scaleY; }
+
+    // Drawing handlers
+    wave.addEventListener('pointerdown', (e)=>{ e.preventDefault(); wave.setPointerCapture(e.pointerId); const r=wave.getBoundingClientRect(); const x=e.clientX-r.left, y=e.clientY-r.top; const erase=(e.button===2)||(e.pointerType==='touch'&&e.pressure>0.5); startPath(x,y,erase);});
+    wave.addEventListener('pointermove', (e)=>{ if(!pen.down) return; const r=wave.getBoundingClientRect(); addPoint(e.clientX-r.left, e.clientY-r.top); });
+    wave.addEventListener('pointerup', endPath);
+    wave.addEventListener('pointercancel', endPath);
+    wave.addEventListener('contextmenu', e=> e.preventDefault());
+
+    function startPath(x,y,erase=false){ pen.down=true; pen.erasing=erase; paths.push([{x,y,erase}]); drawAll(); }
+    function addPoint(x,y){ const path=paths[paths.length-1]; const last=path[path.length-1]; if(!last || (last.x-x)**2 + (last.y-y)**2 > 1){ path.push({x,y,erase:pen.erasing}); } drawAll(); }
+    function endPath(){ pen.down=false; }
+
+    clearBtn.addEventListener('click', ()=>{ paths=[]; samples=[]; coeffs=null; a0rmseEl.textContent='–'; exprEl.textContent='–'; drawAll(); });
+    resetBtn.addEventListener('click', ()=>{ paths=[]; samples=[]; coeffs=null; world.ymin=-1; world.ymax=1; yminEl.value='-1'; ymaxEl.value='1'; setN(512); setK(16); drawAll(); });
+
+    autoAxisBtn.addEventListener('click', ()=>{
+      const bb = bboxScreen(); if(!bb) return;
+      const m=12; const ymin = yFromScreen(bb.ymax+m), ymax = yFromScreen(bb.ymin-m); // screen Y inverted
+      world.ymin=Math.min(ymin,ymax); world.ymax=Math.max(ymin,ymax); yminEl.value=fmt(world.ymin,4); ymaxEl.value=fmt(world.ymax,4);
+      updateScales(); drawAll();
+    });
+
+    // UI bindings
+    Nsel.addEventListener('change', ()=>{ setN(parseInt(Nsel.value,10)); });
+    Kslider.addEventListener('input', ()=>{ setK(parseInt(Kslider.value,10)); });
+    Knum.addEventListener('input', ()=>{ setK(parseInt(Knum.value,10)); });
+    ;[yminEl,ymaxEl].forEach(inp=>{ inp.addEventListener('input', ()=>{ world.ymin=parseFloat(yminEl.value)||-1; world.ymax=parseFloat(ymaxEl.value)||1; updateScales(); drawAll(); }); inp.addEventListener('wheel', e=>e.preventDefault(), {passive:false}); });
+    ;[enforceEl, rmMeanEl, showReconEl, showSamplesEl, showGridEl].forEach(el=> el.addEventListener('change', ()=> drawAll()));
+
+    analyzeBtn.addEventListener('click', ()=>{ buildSamples(); computeDFT(); drawAll(); });
+
+    function setN(v){ N=Math.max(32, v|0); Nsel.value=String(N); Kslider.max=Math.floor(N/2); if(K>Math.floor(N/2)) setK(Math.floor(N/2)); }
+    function setK(v){ K=Math.max(1, Math.min(Math.floor(N/2), v|0)); Kslider.value=String(K); Knum.value=String(K); drawAll(); updateExpr(); }
+
+    // Build samples from drawing: average y per x pixel, then resample to N equispaced θ
+    function buildSamples(){ const w=wave.clientWidth; if(paths.length===0){ samples=[]; return; }
+      const sumY=new Array(w).fill(0), cnt=new Array(w).fill(0);
+      for(const path of paths){ for(const p of path){ if(p.erase) continue; const x=Math.round(p.x); const y=p.y; if(x>=0 && x<w){ sumY[x]+=y; cnt[x]++; } } }
+      // To world coords by pixel column; skip columns with no data by linear fill
+      const pxY=new Array(w).fill(NaN);
+      for(let x=0;x<w;x++){ if(cnt[x]>0){ const py=sumY[x]/cnt[x]; pxY[x]=yFromScreen(py); } }
+      // Fill gaps by linear interpolation
+      let lastIdx=-1; for(let i=0;i<w;i++){ if(Number.isFinite(pxY[i])){ if(lastIdx<0){ for(let j=0;j<i;j++) pxY[j]=pxY[i]; } else { const y0=pxY[lastIdx], y1=pxY[i]; const span=i-lastIdx; for(let j=lastIdx+1;j<i;j++){ const t=(j-lastIdx)/(span); pxY[j]=y0+(y1-y0)*t; } } lastIdx=i; } }
+      if(lastIdx>=0 && lastIdx<w-1){ for(let j=lastIdx+1;j<w;j++) pxY[j]=pxY[lastIdx]; }
+      // Resample to N using linear interpolation on θ
+      const data=[]; for(let n=0;n<N;n++){ const theta= world.thetaMin + (world.thetaMax-world.thetaMin)*n/(N-1); const px = Math.round((theta-world.thetaMin)*world.scaleX + world.pad); const xclamp = Math.max(0, Math.min(w-1, px)); data.push({theta, y:pxY[xclamp]}); }
+      // Optional periodic continuity and mean removal
+      let arr=data.map(d=>d.y);
+      if(enforceEl.checked && Number.isFinite(arr[0]) && Number.isFinite(arr[N-1])){ const d = arr[N-1]-arr[0]; for(let n=0;n<N;n++){ arr[n] = arr[n] - d*n/(N-1); } }
+      let mean=0; for(const v of arr) mean+=v; mean/=N; if(rmMeanEl.checked){ for(let n=0;n<N;n++) arr[n]-=mean; }
+      samples = data.map((d,i)=>({theta:d.theta, y:arr[i]}));
+    }
+
+    // Compute Fourier series coefficients up to N/2
+    function computeDFT(){ if(samples.length<2){ coeffs=null; a0rmseEl.textContent='–'; exprEl.textContent='–'; return; }
+      const y = samples.map(s=>s.y);
+      const a0 = (2/N) * y.reduce((acc,v)=>acc+v,0);
+      const maxK = Math.floor(N/2);
+      const ak = new Float64Array(maxK+1); // ak[0] unused
+      const bk = new Float64Array(maxK+1);
+      for(let k=1;k<=maxK;k++){
+        let sc=0, ss=0; // sums for cos, sin
+        for(let n=0;n<N;n++){
+          const ang = 2*Math.PI*k*n/N;
+          sc += y[n]*Math.cos(ang);
+          ss += y[n]*Math.sin(ang);
+        }
+        ak[k] = (2/N)*sc;
+        bk[k] = (2/N)*ss;
+      }
+      const amp = new Float64Array(maxK+1); const phase = new Float64Array(maxK+1);
+      for(let k=1;k<=maxK;k++){ const A = Math.hypot(ak[k], bk[k]); amp[k]=A; phase[k]=Math.atan2(bk[k], ak[k]); }
+      coeffs = {a0, ak, bk, amp, phase, maxK};
+      // reconstruction error for current K
+      updateRMSE();
+      updateExpr();
+    }
+
+    function reconTheta(theta, Kuse){ if(!coeffs) return 0; let y = coeffs.a0/2; for(let k=1;k<=Kuse;k++){ y += coeffs.ak[k]*Math.cos(k*theta) + coeffs.bk[k]*Math.sin(k*theta); } return y; }
+
+    function updateRMSE(){ if(!coeffs || samples.length===0) { a0rmseEl.textContent='–'; return; } const Kuse = K; let sse=0; for(let n=0;n<N;n++){ const th=samples[n].theta; const e = samples[n].y - reconTheta(th, Kuse); sse += e*e; } const rmse = Math.sqrt(sse/N); a0rmseEl.textContent = `a₀=${fmt(coeffs.a0,4)} , RMSE(K=${Kuse})=${fmt(rmse,4)}`; }
+
+    function updateExpr(){ if(!coeffs){ exprEl.textContent='–'; return; } const Kuse=Math.min(K, coeffs.maxK); let parts=[]; parts.push(`${fmt(coeffs.a0/2,6)}`);
+      for(let k=1;k<=Kuse;k++){
+        const a=coeffs.ak[k], b=coeffs.bk[k];
+        const term = `${fmt(a,6)}·cos(${k}θ) ${b>=0?'+':'−'} ${fmt(Math.abs(b),6)}·sin(${k}θ)`;
+        parts.push(term);
+      }
+      exprEl.textContent = `y(θ) ≈ ` + parts.join('  +  ');
+      updateRMSE();
+    }
+
+    // Drawing
+    function drawAll(){ drawWave(); drawSpectrum(); }
+
+    function drawWave(){ const w=wave.clientWidth, h=wave.clientHeight; wctx.clearRect(0,0,w,h);
+      // grid
+      if(showGridEl.checked){ wctx.save(); wctx.lineWidth=1; wctx.strokeStyle='rgba(140,160,180,.18)';
+        const stepTheta = Math.PI/2; // 0, π/2, π, 3π/2, 2π
+        for(let t=0;t<=world.thetaMax+1e-6; t+=stepTheta){ const Xp=X(t); wctx.beginPath(); wctx.moveTo(Xp, h-world.pad); wctx.lineTo(Xp, world.pad); wctx.stroke(); }
+        const ySteps = 6; for(let i=0;i<=ySteps;i++){ const yv = world.ymin + (world.ymax-world.ymin)*i/ySteps; const Yp=Y(yv); wctx.beginPath(); wctx.moveTo(world.pad, Yp); wctx.lineTo(w-world.pad, Yp); wctx.stroke(); }
+        wctx.restore();
+      }
+      // axes
+      wctx.save(); wctx.strokeStyle='rgba(255,255,255,.6)'; wctx.lineWidth=1.5;
+      // θ axis labels
+      wctx.beginPath(); wctx.moveTo(world.pad, Y(0)); wctx.lineTo(w-world.pad, Y(0)); wctx.stroke();
+      wctx.beginPath(); wctx.moveTo(X(0), h-world.pad); wctx.lineTo(X(0), world.pad); wctx.stroke();
+      wctx.fillStyle='rgba(255,255,255,.7)'; wctx.font='12px ui-sans-serif';
+      wctx.fillText('θ', w-world.pad-20, Y(0)-6); wctx.fillText('y', X(0)+6, world.pad+14);
+      wctx.restore();
+
+      // strokes
+      wctx.save(); wctx.lineCap='round'; wctx.lineJoin='round';
+      for(const path of paths){ if(path.length<2) continue; wctx.beginPath(); for(let i=0;i<path.length;i++){ const p=path[i]; if(i===0) wctx.moveTo(p.x,p.y); else wctx.lineTo(p.x,p.y); } wctx.strokeStyle = path[0].erase? 'rgba(255,255,255,.2)' : 'rgba(92,200,255,.9)'; wctx.lineWidth = path[0].erase? 10 : 3; wctx.stroke(); }
+      wctx.restore();
+
+      // samples
+      if(showSamplesEl.checked && samples.length){ wctx.save(); wctx.fillStyle='#ffd166'; for(const s of samples){ wctx.beginPath(); wctx.arc(X(s.theta), Y(s.y), 2, 0, Math.PI*2); wctx.fill(); } wctx.restore(); }
+
+      // reconstruction curve
+      if(showReconEl.checked && coeffs){ const nSeg=800; wctx.save(); wctx.strokeStyle=getComputedStyle(document.body).getPropertyValue('--accent2')||'#ff7a90'; wctx.lineWidth=2.2; wctx.beginPath(); for(let i=0;i<=nSeg;i++){ const t=i/nSeg; const th=world.thetaMin + (world.thetaMax-world.thetaMin)*t; const y=reconTheta(th, K); const Xp=X(th), Yp=Y(y); if(i===0) wctx.moveTo(Xp,Yp); else wctx.lineTo(Xp,Yp); } wctx.stroke(); wctx.restore(); }
+    }
+
+    function drawSpectrum(){ const w=spec.clientWidth, h=spec.clientHeight; sctx.clearRect(0,0,w,h);
+      if(!coeffs){ // frame only
+        sctx.save(); sctx.strokeStyle='rgba(255,255,255,.3)'; sctx.strokeRect(12,12,w-24,h-24); sctx.restore(); return; }
+      const maxK = Math.min(coeffs.maxK, Math.floor(N/2)); const amps = Array.from({length:maxK}, (_,i)=> coeffs.amp[i+1]);
+      const pad=48; const innerW=w-pad*2, innerH=h-pad*2; const maxAmp = Math.max(1e-9, Math.max(...amps));
+      // grid
+      if(showGridEl.checked){ sctx.save(); sctx.strokeStyle='rgba(140,160,180,.18)'; sctx.lineWidth=1; const ySteps=4; for(let i=0;i<=ySteps;i++){ const y=pad + innerH*(i/ySteps); sctx.beginPath(); sctx.moveTo(pad,y); sctx.lineTo(w-pad,y); sctx.stroke(); } sctx.restore(); }
+      // axes
+      sctx.save(); sctx.strokeStyle='rgba(255,255,255,.6)'; sctx.lineWidth=1.5; sctx.beginPath(); sctx.moveTo(pad, h-pad); sctx.lineTo(w-pad, h-pad); sctx.stroke(); sctx.beginPath(); sctx.moveTo(pad, h-pad); sctx.lineTo(pad, pad); sctx.stroke(); sctx.restore();
+      // bars
+      sctx.save(); const barW = Math.max(1, innerW/maxK * 0.8); for(let k=1;k<=maxK;k++){ const A=coeffs.amp[k]; const x = pad + innerW*(k-1)/maxK + (innerW/maxK - barW)/2; const y = pad + innerH*(1 - A/maxAmp); const height = innerH*(A/maxAmp); sctx.fillStyle='#5cc8ff'; sctx.fillRect(x, y, barW, height); }
+      sctx.restore();
+      // labels
+      sctx.save(); sctx.fillStyle='rgba(255,255,255,.7)'; sctx.font='12px ui-sans-serif'; sctx.fillText('k（高調波番号）', w-pad-96, h-pad+16); sctx.fillText('|A_k|', pad+6, pad-8); sctx.restore();
+    }
+
+    function bboxScreen(){ if(paths.length===0) return null; let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity; for(const path of paths){ for(const p of path){ if(p.erase) continue; xmin=Math.min(xmin,p.x); xmax=Math.max(xmax,p.x); ymin=Math.min(ymin,p.y); ymax=Math.max(ymax,p.y); } } if(xmin===Infinity) return null; return {xmin,xmax,ymin,ymax}; }
+
+    function fmt(x,n=4){ if(!Number.isFinite(x)) return '–'; const s=x.toFixed(n); return s.replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1'); }
+
+    // Boot
+    function boot(){ resizeCanvases(); setN(512); setK(16); window.addEventListener('resize', resizeCanvases); }
+    boot();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>強制振動シミュレーター v1-vertical L0×2（滑らか・線形・視覚のみギャップ）</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#11182a; --panel2:#0e1a2c; --text:#e6edf3; --muted:#9fb0c3;
+    --accent:#6aa9ff; --accent2:#65d6ad; --warn:#ffb86b;
+  }
+  *{box-sizing:border-box}
+  body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+        color:var(--text);
+        background: radial-gradient(1200px 800px at 20% -10%, #162235 0%, #0b1220 40%, #0b1220 100%); }
+  header{ padding:16px 20px; border-bottom:1px solid #1f2b42; background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0));
+          position:sticky;top:0;z-index:5; }
+  header h1{margin:0;font-size:20px}
+  header .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  .container{ display:grid; grid-template-columns: 320px 1fr 420px; gap:16px; padding:16px; }
+  @media (max-width:1200px){ .container{ grid-template-columns:1fr; grid-auto-rows:min-content } }
+  .card{ background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+         border:1px solid #1f2b42; border-radius:16px; padding:14px; box-shadow:0 20px 60px rgba(0,0,0,.25) }
+  .card h2{ margin:0 0 8px 0; font-size:16px; font-weight:700 }
+  .controls .row{ display:grid; grid-template-columns: 1fr 120px; gap:10px; align-items:center; margin:10px 0 16px }
+  .controls label{ font-size:13px; color:var(--muted) }
+  .controls input[type=number]{
+    width:100%; padding:6px 8px; border-radius:10px; background:var(--panel2); color:var(--text); border:1px solid #21304d
+  }
+  .btns{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px }
+  button{ border:1px solid #29406b; background:linear-gradient(180deg,#1b2740,#101a2f); color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer }
+  button.primary{ border-color:#2b5499; background:linear-gradient(180deg,#234884,#16366a) }
+  button.warn{ border-color:#7d4d22; background:linear-gradient(180deg,#6d3a14,#3b220e) }
+  .numbers{ display:grid; grid-template-columns: repeat(2,1fr); gap:8px; margin-top:12px }
+  .numbers .box{ border:1px solid #1f2b42; background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01)); border-radius:12px; padding:10px; font-size:12px; color:var(--muted) }
+  .numbers .box b{ display:block; color:var(--text); font-size:18px; margin-top:4px }
+  canvas{ background:#0c1526; border-radius:12px; border:1px solid #1f2b42; display:block; width:100%; height:auto }
+  .legend{ display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); margin:6px 2px 0 2px; flex-wrap:wrap }
+  .dot{ width:10px; height:10px; border-radius:50% }
+  .d1{ background:var(--accent) } .d2{ background:var(--accent2) } .d3{ background:var(--warn) }
+  .help{ font-size:12px; color:var(--muted); line-height:1.6 }
+  .footer{ margin:10px 0 0; font-size:11px; color:#8ea0b8 }
+  .inline{ display:flex; gap:8px; align-items:center }
+</style>
+</head>
+<body>
+<header>
+  <h1>強制振動シミュレーター v1-vertical L0×2（線形・滑らか）</h1>
+  <div class="sub">ver1と同じ線形モデルと数値計算。視覚のみで「ばねの初期長さ」を2倍に設定し、縮んでも基台に当たらない余裕を確保。</div>
+</header>
+
+<div class="container">
+  <section class="card controls">
+    <h2>パラメータ</h2>
+    <div class="row"><label>おもりの質量 m [kg]</label><input type="number" id="mInput" step="0.01" min="0.05" max="20" value="1.00"></div>
+    <div class="row"><label>ばね定数 k [N/m]</label><input type="number" id="kInput" step="1" min="1" max="2000" value="100"></div>
+    <div class="row"><label>減衰係数 c [N·s/m]（0で無減衰）</label><input type="number" id="cInput" step="0.01" min="0" max="50" value="0.50"></div>
+    <div class="row"><label>加振振幅 A<sub>b</sub> [m]</label><input type="number" id="AInput" step="0.001" min="0" max="0.5" value="0.05"></div>
+    <div class="row"><label>加振周波数 f [Hz]</label><input type="number" id="fInput" step="0.01" min="0" max="10" value="1.00"></div>
+    <div class="row"><label>描画スケール [px/m]</label><input type="number" id="scaleInput" step="10" min="120" max="900" value="380"></div>
+    <div class="row"><label>アニメ速度倍率</label><input type="number" id="speedInput" step="0.1" min="0.2" max="5" value="1.0"></div>
+    <div class="row"><label>「視覚のみ」最小ギャップ [px]</label><input type="number" id="gapPxInput" step="1" min="0" max="160" value="40"></div>
+
+    <div class="numbers">
+      <div class="box">固有角周波数 ω<sub>n</sub> = <b><span id="wn"></span></b> rad/s</div>
+      <div class="box">固有振動数 f<sub>n</sub> = <b><span id="fn"></span></b> Hz</div>
+      <div class="box">減衰比 ζ = <b><span id="zeta"></span></b></div>
+      <div class="box">理論定常振幅 X = <b><span id="Xth"></span></b> m</div>
+      <div class="box">観測振幅（直近） = <b><span id="Xobs"></span></b> m</div>
+      <div class="box">位相差（理論） = <b><span id="phase"></span></b> rad</div>
+    </div>
+    <div class="btns">
+      <button id="startBtn" class="primary">▶ 実行</button>
+      <button id="pauseBtn">⏸ 一時停止</button>
+      <button id="resetBtn" class="warn">⟲ リセット</button>
+      <button id="randomBtn">🎲 ランダム例</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>可視化（上：基台 y(t)／下：質量 x(t)｜L0×2）</h2>
+    <canvas id="sim" width="700" height="500"></canvas>
+    <div class="legend">
+      <span class="inline"><span class="dot d1"></span>質量の変位 x(t)</span>
+      <span class="inline"><span class="dot d2"></span>基台の変位 y(t)</span>
+    </div>
+    <p class="help">運動方程式: <code>m x¨ + c (x˙ − y˙) + k (x − y) = 0</code>，<code>y(t) = A<sub>b</sub> sin(2π f t)</code>。物理はver1と完全同一、ばねの**見た目の初期長さのみ2倍**にしています。</p>
+  </section>
+
+  <section class="card">
+    <h2>波形 &amp; 共振曲線</h2>
+    <canvas id="timePlot" width="700" height="210"></canvas>
+    <div class="legend">
+      <span class="inline"><span class="dot d1"></span>x(t)</span>
+      <span class="inline"><span class="dot d2"></span>y(t)</span>
+    </div>
+    <canvas id="freqPlot" width="700" height="240" style="margin-top:10px"></canvas>
+    <div class="legend">
+      <span class="inline"><span class="dot d3"></span>現在の周波数 f</span>
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin:16px">
+  <h2>備考</h2>
+  <ul class="help">
+    <li>L0 は**描画だけ**2倍。運動には影響しません（線形のまま）。</li>
+    <li>さらに余裕が必要なら「視覚のみ最小ギャップ [px]」を増やしてください。</li>
+  </ul>
+  <div class="footer">© 2025 強制振動シミュレーター v1-vertical L0×2 | 線形モデル・RK4</div>
+</section>
+
+<script>
+(function(){
+  const $ = id=>document.getElementById(id);
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const dpiCanvas = cv=>{ const dpr=window.devicePixelRatio||1; const r=cv.getBoundingClientRect();
+    cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
+    const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); return ctx; };
+
+  // Elements
+  const mInput=$('mInput'), kInput=$('kInput'), cInput=$('cInput'),
+        AInput=$('AInput'), fInput=$('fInput'),
+        scaleInput=$('scaleInput'), speedInput=$('speedInput'),
+        gapPxInput=$('gapPxInput');
+  const wnTxt=$('wn'), fnTxt=$('fn'), zetaTxt=$('zeta'),
+        XthTxt=$('Xth'), XobsTxt=$('Xobs'), phaseTxt=$('phase');
+  const simCanvas=$('sim'), timeCanvas=$('timePlot'), freqCanvas=$('freqPlot');
+  let simCtx=dpiCanvas(simCanvas), timeCtx=dpiCanvas(timeCanvas), freqCtx=dpiCanvas(freqCanvas);
+  window.addEventListener('resize', ()=>{ simCtx=dpiCanvas(simCanvas); timeCtx=dpiCanvas(timeCanvas); freqCtx=dpiCanvas(freqCanvas); drawAllStatic(); });
+
+  // State
+  let t=0, x=0, v=0, running=false, lastTS=0;
+  const histDuration=12, hist=[];
+
+  function P(){
+    return {
+      m: Math.max(0.05, parseFloat(mInput.value)||1),
+      k: Math.max(0.001, parseFloat(kInput.value)||100),
+      c: Math.max(0, parseFloat(cInput.value)||0.5),
+      A: Math.max(0, parseFloat(AInput.value)||0.05),
+      f: Math.max(0, parseFloat(fInput.value)||1.0),
+      scl: Math.max(10, parseFloat(scaleInput.value)||380),
+      speed: clamp(parseFloat(speedInput.value)||1, 0.2, 5),
+      gapPx: Math.max(0, parseFloat(gapPxInput.value)||40)
+    };
+  }
+
+  function base(tt,p){
+    const w=2*Math.PI*p.f;
+    const y = p.A*Math.sin(w*tt);
+    const yd= p.A*w*Math.cos(w*tt);
+    return {y, yd};
+  }
+
+  function accel(x, v, tt, p){
+    const {y, yd} = base(tt,p);
+    return (-p.c*(v - yd) - p.k*(x - y)) / p.m;
+  }
+
+  function rk4(h,p){
+    const a1 = accel(x,v,t,p); const kx1=v, kv1=a1;
+    const a2 = accel(x + kx1*h/2, v + kv1*h/2, t + h/2, p); const kx2=v + kv1*h/2, kv2=a2;
+    const a3 = accel(x + kx2*h/2, v + kv2*h/2, t + h/2, p); const kx3=v + kv2*h/2, kv3=a3;
+    const a4 = accel(x + kx3*h, v + kv3*h, t + h, p);       const kx4=v + kv3*h, kv4=a4;
+    x += h*(kx1 + 2*kx2 + 2*kx3 + kx4)/6;
+    v += h*(kv1 + 2*kv2 + 2*kv3 + kv4)/6;
+    t += h;
+  }
+
+  function freqResponseMagPhase(w, p){
+    const a = p.k - p.m*w*w, b = p.c*w;
+    const numRe = p.k, numIm = p.c*w;
+    const mag = Math.hypot(numRe, numIm)/Math.hypot(a, b);
+    const phase = Math.atan2(numIm, numRe) - Math.atan2(b, a);
+    return {mag, phase};
+  }
+
+  function drawSim(p){
+    const ctx=simCtx, W=simCanvas.clientWidth, H=simCanvas.clientHeight;
+    ctx.clearRect(0,0,W,H);
+    const cx=W*0.5, top=40, bottom=H-40;
+    const baseY0=top+30, baseHalf=10, massHalf=26;
+
+    const {y} = base(t,p);
+    const baseY = baseY0 + p.scl*y;
+
+    // --- Compute "initial spring length" at x=0, y=0, then double it for equilibrium drawing ---
+    const eqMassBaseline = (top + bottom)/2; // old equilibrium center of mass (x=0 visual baseline)
+    const L0_old = (eqMassBaseline - massHalf) - (baseY0 + baseHalf); // px
+    const L0_new = 2 * L0_old; // doubled initial spring length (visual)
+    const eqMassY0 = baseY0 + baseHalf + L0_new + massHalf;
+
+    // Physical mapping for mass center (x measured from 0): use eqMassY0 as baseline
+    const massY_phys = eqMassY0 + p.scl*x;
+
+    // visual-only min gap between base and mass
+    const minGap = p.gapPx;
+    const minMassCenterY = baseY + baseHalf + minGap + massHalf;
+    const massY = Math.max(massY_phys, minMassCenterY);
+
+    // spring endpoints
+    const springTop = baseY + baseHalf;
+    const springBot = massY - massHalf;
+    const Lpx = Math.max(40, springBot - springTop);
+    const coils=10, amp=18;
+
+    // grid
+    ctx.strokeStyle='#223256'; ctx.lineWidth=1;
+    for(let yy=top; yy<=bottom; yy+=40){ ctx.beginPath(); ctx.moveTo(10,yy); ctx.lineTo(W-10,yy); ctx.stroke(); }
+
+    // base
+    ctx.fillStyle='#274472'; ctx.strokeStyle='#6aa9ff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(cx-80, baseY-10, 160, 20, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#9fb0c3'; ctx.font='12px sans-serif'; ctx.fillText('基台 y(t)', cx-20, baseY-16);
+
+    // spring (vertical zigzag)
+    ctx.strokeStyle='#8eb5ff'; ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(cx, springTop);
+    for(let i=1;i<=coils;i++){
+      const yy = springTop + (Lpx*(i-0.5))/coils;
+      const xx = cx + ((i%2===0)? -amp: amp);
+      ctx.lineTo(xx, yy);
+    }
+    ctx.lineTo(cx, springTop + Lpx);
+    ctx.stroke();
+
+    // mass
+    ctx.fillStyle='#65d6ad'; ctx.strokeStyle='#aef0d7'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(cx-26, massY-26, 52, 52, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#9fb0c3'; ctx.fillText('質量 m', cx-18, massY+44);
+
+    // equilibrium references (y=0, x=0 lines) reflecting new baseline
+    const eqBaseY = baseY0;
+    const eqMassY = eqMassY0; // new equilibrium mass line for x=0
+    ctx.setLineDash([6,6]); ctx.strokeStyle='#35527e';
+    ctx.beginPath(); ctx.moveTo(cx-100, eqBaseY); ctx.lineTo(cx+100, eqBaseY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-100, eqMassY); ctx.lineTo(cx+100, eqMassY); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawTime(p){
+    const ctx=timeCtx, W=timeCanvas.clientWidth, H=timeCanvas.clientHeight;
+    ctx.clearRect(0,0,W,H);
+    const X0=40, Y0=H-26, X1=W-10, Y1=10;
+    ctx.strokeStyle='#253657'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X0,10); ctx.lineTo(X0,Y0); ctx.lineTo(X1,Y0); ctx.stroke();
+
+    const now=t, t0=now-histDuration;
+    const data = hist.filter(d=>d.t>=t0);
+    let ymin=1e9, ymax=-1e9;
+    for(const d of data){ ymin=Math.min(ymin,d.x,d.y); ymax=Math.max(ymax,d.x,d.y); }
+    if(!isFinite(ymin) || ymax-ymin<1e-6){ ymin=-0.05; ymax=0.05; }
+    const pad=0.12*(ymax-ymin||0.1); ymin-=pad; ymax+=pad;
+    const xt=tt=> X0 + (tt-t0)/histDuration*(X1-X0);
+    const yt=val=> Y0 - (val - ymin)/(ymax-ymin)*(Y0-Y1);
+
+    // grid
+    ctx.strokeStyle='#1b2a49';
+    for(let k=0;k<=5;k++){ const xx=X0+k*(X1-X0)/5; ctx.beginPath(); ctx.moveTo(xx,Y1); ctx.lineTo(xx,Y0); ctx.stroke(); }
+    for(let k=0;k<=4;k++){ const yy=Y0 - k*(Y0-Y1)/4; ctx.beginPath(); ctx.moveTo(X0,yy); ctx.lineTo(X1,yy); ctx.stroke(); }
+
+    // y(t)
+    ctx.strokeStyle='#65d6ad'; ctx.lineWidth=2; ctx.beginPath();
+    let first=true; for(const d of data){ const px=xt(d.t), py=yt(d.y); if(first){ctx.moveTo(px,py); first=false}else ctx.lineTo(px,py); } ctx.stroke();
+    // x(t)
+    ctx.strokeStyle='#6aa9ff'; ctx.lineWidth=2; ctx.beginPath();
+    first=true; for(const d of data){ const px=xt(d.t), py=yt(d.x); if(first){ctx.moveTo(px,py); first=false}else ctx.lineTo(px,py); } ctx.stroke();
+
+    ctx.fillStyle='#9fb0c3'; ctx.font='12px sans-serif';
+    ctx.fillText(`${(histDuration).toFixed(0)} s ウィンドウ`, X0+6, Y1+16);
+    ctx.fillText('時間 [s]', W-70, H-8);
+    ctx.save(); ctx.translate(12,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('変位 [m]',0,0); ctx.restore();
+  }
+
+  function drawFreq(p){
+    const ctx=freqCtx, W=freqCanvas.clientWidth, H=freqCanvas.clientHeight;
+    ctx.clearRect(0,0,W,H);
+    const wn = Math.sqrt(p.k/p.m), fn = wn/(2*Math.PI);
+    const fmax = Math.max(2.0, 3*fn);
+    const N=300; const X=[], Y=[]; let ymax=1e-9;
+    for(let i=0;i<=N;i++){ const f=i/N*fmax; const w=2*Math.PI*f; const {mag}=freqResponseMagPhase(w,p); const amp=mag*p.A; X.push(f); Y.push(amp); ymax=Math.max(ymax,amp); }
+    const pad=0.15*ymax; const X0=40, Y0=H-26, X1=W-12, Y1=10;
+    const xt=f=> X0 + f/fmax*(X1-X0); const yt=amp=> Y0 - amp/(ymax+pad)*(Y0-Y1);
+    ctx.strokeStyle='#253657'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(X0,10); ctx.lineTo(X0,Y0); ctx.lineTo(X1,Y0); ctx.stroke();
+    ctx.strokeStyle='#1b2a49'; for(let k=0;k<=6;k++){ const xx=X0+k*(X1-X0)/6; ctx.beginPath(); ctx.moveTo(xx,Y1); ctx.lineTo(xx,Y0); ctx.stroke(); }
+    for(let k=0;k<=4;k++){ const yy=Y0 - k*(Y0-Y1)/4; ctx.beginPath(); ctx.moveTo(X0,yy); ctx.lineTo(X1,yy); ctx.stroke(); }
+    ctx.strokeStyle='#a7c4ff'; ctx.lineWidth=2.2; ctx.beginPath(); ctx.moveTo(xt(X[0]), yt(Y[0])); for(let i=1;i<=N;i++){ ctx.lineTo(xt(X[i]), yt(Y[i])); } ctx.stroke();
+    const fx=xt(p.f); const {mag}=freqResponseMagPhase(2*Math.PI*p.f,p); const amp=mag*p.A;
+    ctx.strokeStyle='#ffb86b'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(fx,10); ctx.lineTo(fx,Y0); ctx.stroke();
+    ctx.fillStyle='#ffb86b'; ctx.beginPath(); ctx.arc(fx, yt(amp), 4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#9fb0c3'; ctx.font='12px sans-serif';
+    ctx.fillText(`周波数 [Hz]（0 〜 ${fmax.toFixed(2)}）`, X1-170, H-8);
+    ctx.save(); ctx.translate(12,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('定常振幅 X [m]',0,0); ctx.restore();
+    ctx.fillText(`fₙ = ${fn.toFixed(3)} Hz`, X0+6, 22);
+  }
+
+  function updateInfo(p){
+    const wn=Math.sqrt(p.k/p.m), fn=wn/(2*Math.PI), zeta=p.c/(2*Math.sqrt(p.k*p.m));
+    wnTxt.textContent=wn.toFixed(3); fnTxt.textContent=fn.toFixed(3); zetaTxt.textContent=zeta.toFixed(3);
+    const w=2*Math.PI*p.f, fr=freqResponseMagPhase(w,p);
+    XthTxt.textContent=(fr.mag*p.A).toExponential(3); phaseTxt.textContent=fr.phase.toFixed(3);
+    const now=t; const data=hist.filter(d=>d.t>now-4); let xmax=-1e9, xmin=1e9;
+    for(const d of data){ xmax=Math.max(xmax,d.x); xmin=Math.min(xmin,d.x); }
+    const Xobs=(data.length>1)?0.5*(xmax-xmin):0; XobsTxt.textContent=(Xobs>0?Xobs.toExponential(3):'—');
+  }
+
+  function drawAllStatic(){ const p=P(); drawSim(p); drawTime(p); drawFreq(p); updateInfo(p); }
+
+  function step(ts){
+    if(!running){ lastTS=ts; return; }
+    const p=P();
+    if(!lastTS) lastTS=ts;
+    const dtReal=Math.min(0.05, (ts-lastTS)/1000); lastTS=ts;
+    const dt = dtReal * p.speed;
+    const sub = Math.max(1, Math.floor((p.f>0? 600*p.f: 300)*dt));
+    const h = dt/sub;
+
+    for(let i=0;i<sub;i++){
+      rk4(h,p);
+      const {y} = base(t,p);
+      hist.push({t, x, y});
+    }
+    const tmin = t - Math.max(histDuration, 20);
+    while(hist.length && hist[0].t < tmin) hist.shift();
+
+    drawSim(p); drawTime(p); drawFreq(p); updateInfo(p);
+  }
+
+  // Controls
+  $('startBtn').onclick = ()=>{ running=true; };
+  $('pauseBtn').onclick = ()=>{ running=false; };
+  $('resetBtn').onclick = ()=>{ running=false; t=0; x=0; v=0; lastTS=0; hist.length=0; drawAllStatic(); };
+  $('randomBtn').onclick = ()=>{
+    const m = 0.3 + Math.random()*4.0;
+    const k = 40 + Math.random()*400;
+    const c = (Math.random()<0.7? 0.4: 0.05) + Math.random()*1.0;
+    const A = 0.01 + Math.random()*0.06;
+    const fn = Math.sqrt(k/m)/(2*Math.PI);
+    const f = Math.max(0.05, fn*(0.5 + Math.random()*1.8));
+    mInput.value=m.toFixed(2); kInput.value=k.toFixed(0); cInput.value=c.toFixed(2);
+    AInput.value=A.toFixed(3); fInput.value=f.toFixed(2);
+    drawAllStatic();
+  };
+  [mInput,kInput,cInput,AInput,fInput,scaleInput,speedInput,gapPxInput].forEach(el=>{
+    el.addEventListener('input', drawAllStatic);
+    el.addEventListener('change', drawAllStatic);
+  });
+
+  // init
+  drawAllStatic();
+  (function loop(ts){ step(ts); requestAnimationFrame(loop); })();
+})();
+</script>
+</body>
+</html>

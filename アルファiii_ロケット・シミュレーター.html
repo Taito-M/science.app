@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アルファIII ロケット・シミュレーター v3（Estes・80°固定）</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; margin:0; background:#0d0f14; color:#e9eef5}
+  .wrap{max-width:1100px; margin:0 auto; padding:16px}
+  h1{font-size:20px; margin:0 0 12px}
+  .grid{display:grid; grid-template-columns:340px 1fr; gap:12px}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}}
+  .panel{background:#121620; border:1px solid #263246; border-radius:12px; padding:12px}
+  label{font-size:12px; color:#b7c3d9; display:block; margin-bottom:6px}
+  select,input{width:100%; padding:8px 10px; border-radius:8px; border:1px solid #2a3a52; background:#0f141f; color:#e9eef5}
+  input[type="range"]{padding:0}
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .row > *{flex:1}
+  .muted{font-size:12px; color:#9fb0c7}
+  .btn{padding:9px 12px; border-radius:10px; border:1px solid #2a3a52; background:#4ade80; color:#102; font-weight:800; cursor:pointer}
+  .btn.ghost{background:#172033; color:#e9eef5}
+  .btn:disabled{opacity:.6; cursor:not-allowed}
+  canvas{width:100%; background:linear-gradient(#0b1220,#0b1220 60%, #0e0f14); border-radius:10px; border:1px solid #263246}
+  .kpi{display:grid; grid-template-columns:repeat(2,minmax(120px,1fr)); gap:8px}
+  .kpi div{background:#121a2a; border:1px solid #22314a; border-radius:8px; padding:8px; font-size:12px}
+  .kpi b{display:block; font-size:16px}
+  .legend{display:flex; gap:10px; flex-wrap:wrap; font-size:12px}
+  .dot{width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; margin-right:6px}
+  .d0{background:#60a5fa}.d1{background:#34d399}.d2{background:#fbbf24}.d3{background:#f87171}
+  .log{height:140px; overflow:auto; background:#0f141f; border:1px solid #263246; border-radius:8px; padding:6px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px}
+  .small{font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>アルファIII ロケット・シミュレーター v3（Estes｜打上角度＝水平から80°固定）</h1>
+  <div class="grid">
+    <div class="panel">
+      <div class="row">
+        <div>
+          <label for="engineSel">エンジン（Estes）</label>
+          <select id="engineSel">
+            <option value="A8-3" selected>A8-3</option>
+            <option value="B4-4">B4-4</option>
+            <option value="B6-4">B6-4</option>
+            <option value="C6-5">C6-5</option>
+          </select>
+        </div>
+        <div>
+          <label>打上角度</label>
+          <input value="80°（水平から）固定" disabled>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="massBody">アルファIII 乾燥重量（本体のみ, g）</label>
+          <input id="massBody" type="number" value="34" min="20" max="80" step="0.1">
+        </div>
+        <div>
+          <label for="cdBody">抗力係数 Cd（機体）</label>
+          <input id="cdBody" type="number" value="0.60" min="0.3" max="0.9" step="0.01">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="wind">風（水平, m/s）</label>
+          <input id="wind" type="number" value="0" min="-10" max="10" step="0.1">
+        </div>
+        <div>
+          <label for="rho">空気密度 ρ（kg/m³）</label>
+          <input id="rho" type="number" value="1.225" min="0.6" max="1.4" step="0.01">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="speed">再生速度（0.25x–3x） <span id="speedOut" class="muted">1.00×</span></label>
+          <input id="speed" type="range" min="0.25" max="3" value="1" step="0.05">
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="runBtn" class="btn">シミュレーション開始</button>
+        <button id="pauseBtn" class="btn ghost" disabled>一時停止</button>
+        <button id="resetBtn" class="btn ghost">リセット</button>
+      </div>
+
+      <div class="legend" style="margin-top:8px">
+        <div><span class="dot d0"></span>上昇（燃焼）</div>
+        <div><span class="dot d1"></span>コースト（遅延）</div>
+        <div><span class="dot d2"></span>射出（逆噴射演出）/ パラシュート開傘</div>
+        <div><span class="dot d3"></span>降下（パラシュート）</div>
+      </div>
+
+      <div class="kpi" style="margin-top:10px">
+        <div>最高高度<b id="kApogee">—</b><span class="small">m</span></div>
+        <div>到達距離<b id="kRange">—</b><span class="small">m</span></div>
+        <div>飛行時間<b id="kTflight">—</b><span class="small">s</span></div>
+        <div>最大速度<b id="kVmax">—</b><span class="small">m/s</span></div>
+      </div>
+
+      <div style="margin-top:8px">
+        <div class="muted">注）Estes モーターは <b>燃焼→遅延（煙のみ）→射出薬（パラシュート展開）</b> の順です。本シミュレータでは「逆噴射」は射出薬の演出表示で、実際の逆向き推力はほぼ発生しません。</div>
+      </div>
+
+      <div style="margin-top:8px">
+        <div class="muted">イベントログ</div>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="view" width="900" height="520"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  // ====== 定数とエンジンデータ（簡略平均推力モデル） ======
+  var DEG = Math.PI/180;
+  var GRAV = 9.81; // m/s^2
+  var ANG = 80 * DEG; // 水平から80°
+  var DIAM = 0.025; // m (Alpha III: 0.98 in ≒ 0.025 m)
+  var AREA = Math.PI * Math.pow(DIAM/2, 2);
+
+  // Engine dictionary: avgThrust(N), burn(s), delay(s), mass_total(g), prop(g)
+  var ENGINES = {
+    "A8-3": { avgThrust:3.2, burn:0.70, delay:3.0, mass_total:16, prop:3 },
+    "B4-4": { avgThrust:4.2, burn:1.00, delay:4.0, mass_total:19, prop:6 },
+    "B6-4": { avgThrust:5.0, burn:0.90, delay:4.0, mass_total:19, prop:6 },
+    "C6-5": { avgThrust:4.7, burn:1.90, delay:5.0, mass_total:24, prop:11 }
+  };
+
+  // ====== 要素 ======
+  function $(id){return document.getElementById(id);} 
+  var engineSel=$('engineSel');
+  var massBody=$('massBody');
+  var cdBody=$('cdBody');
+  var windInp=$('wind');
+  var rhoInp=$('rho');
+  var speedInp=$('speed'), speedOut=$('speedOut');
+  var runBtn=$('runBtn'), pauseBtn=$('pauseBtn'), resetBtn=$('resetBtn');
+  var view=$('view');
+  var kApogee=$('kApogee'), kRange=$('kRange'), kTflight=$('kTflight'), kVmax=$('kVmax');
+  var logBox=$('log');
+  var vctx=view.getContext('2d');
+
+  // ====== 状態 ======
+  var sim=null, rafId=null, paused=true;
+
+  function log(msg){ var t = (sim? sim.t.toFixed(2) : '0.00'); logBox.innerHTML += '['+t+'s] '+msg+'<br>'; logBox.scrollTop = logBox.scrollHeight; }
+
+  function makeSim(){
+    var eng = ENGINES[engineSel.value];
+    var dry = (parseFloat(massBody.value)||34)/1000; // kg
+    var mMotor = (eng.mass_total||20)/1000; // kg full
+    var mProp = (eng.prop||6)/1000; // kg
+    var cd = Math.max(0.3, Math.min(1.2, parseFloat(cdBody.value)||0.6));
+    var rho = Math.max(0.6, Math.min(1.4, parseFloat(rhoInp.value)||1.225));
+    var wind = parseFloat(windInp.value)||0;
+    var speed = Math.max(0.25, Math.min(3, parseFloat(speedInp.value)||1));
+
+    return {
+      // parameters
+      eng: eng, cd: cd, rho: rho, wind: wind,
+      m0: dry + mMotor, // liftoff mass (kg)
+      m_dry_after: dry + (mMotor - mProp), // after burn (kg)
+      // state
+      t: 0, base_dt: 0.01, dt: 0.01*speed,
+      x: 0, y: 0.5, // y=0 is地面, 0.5mからスタート（ロッド高の簡略）
+      vx: 0, vy: 0,
+      m: dry + mMotor,
+      phase: 'boost', // 'boost'|'coast'|'eject'|'chute'|'landed'
+      events: [],
+      maxY: 0, maxV: 0,
+      hist: [] // {t,y,x,v,phase}
+    };
+  }
+
+  function step(sim){
+    // speed変更を反映（毎ステップ）
+    var spd = Math.max(0.25, Math.min(3, parseFloat(speedInp.value)||1));
+    sim.dt = sim.base_dt * spd;
+
+    var eng = sim.eng;
+    var Fth = 0;
+    // 推力（平均で簡略）
+    if(sim.t <= eng.burn && sim.phase==='boost'){
+      Fth = eng.avgThrust; // N
+      // 質量を線形減少
+      var frac = Math.min(1, sim.t/eng.burn);
+      sim.m = sim.m_dry_after + (1-frac)*(eng.prop/1000);
+    } else {
+      if(sim.phase==='boost'){
+        sim.phase='coast';
+        sim.events.push({t:sim.t, type:'burnout'});
+        log('エンジンストップ（燃焼終了）');
+      }
+      Fth = 0;
+      sim.m = sim.m_dry_after;
+    }
+    // 遅延経過→射出
+    var tEject = eng.burn + eng.delay;
+    if(sim.phase!=='eject' && sim.phase!=='chute' && sim.t >= tEject){
+      sim.phase='eject';
+      sim.events.push({t:sim.t, type:'eject'});
+      log('逆噴射（演出）：射出薬作動 → パラシュート開傘');
+      // 見た目の“逆噴射”として微小な逆向きインパルスを与える（0.2 m/s）：
+      var vmag = Math.sqrt(sim.vx*sim.vx + sim.vy*sim.vy);
+      if(vmag>0){ sim.vx *= (vmag-0.2)/vmag; sim.vy *= (vmag-0.2)/vmag; }
+      // すぐにパラシュート状態へ
+      sim.phase='chute';
+    }
+
+    // 力の合成
+    var Fx = 0, Fy = 0;
+    if(Fth>0){
+      Fx += Fth * Math.cos(ANG);
+      Fy += Fth * Math.sin(ANG);
+    }
+    // 空力抗力（風を相対風に）
+    var vrelx = sim.vx - sim.wind;
+    var vrely = sim.vy;
+    var vrel = Math.sqrt(vrelx*vrelx + vrely*vrely);
+    if(vrel>0){
+      var dragMag;
+      if(sim.phase==='chute'){
+        // パラシュート：Cd*A を簡略（直径12inch ≒ 0.305 m, Cd~1.5）
+        var A_chute = Math.PI*Math.pow(0.305/2,2);
+        var CdA = 1.5 * A_chute;
+        dragMag = 0.5 * sim.rho * CdA * vrel*vrel;
+      }else{
+        dragMag = 0.5 * sim.rho * sim.cd * AREA * vrel*vrel;
+      }
+      Fx += -dragMag * (vrelx/vrel);
+      Fy += -dragMag * (vrely/vrel);
+    }
+    // 重力
+    Fy += - sim.m * GRAV;
+
+    // 運動方程式
+    var ax = Fx / sim.m;
+    var ay = Fy / sim.m;
+    sim.vx += ax * sim.dt;
+    sim.vy += ay * sim.dt;
+    sim.x  += sim.vx * sim.dt;
+    sim.y  += sim.vy * sim.dt;
+
+    // 記録
+    var vmag2 = Math.sqrt(sim.vx*sim.vx + sim.vy*sim.vy);
+    if(sim.y > sim.maxY) sim.maxY = sim.y;
+    if(vmag2 > sim.maxV) sim.maxV = vmag2;
+    sim.hist.push({t:sim.t, y:sim.y, x:sim.x, v:vmag2, phase:sim.phase});
+
+    // 地面接触
+    if(sim.y<=0 && sim.t>0){
+      sim.y=0; sim.phase='landed';
+      sim.events.push({t:sim.t, type:'touchdown'});
+      log('着地');
+    }
+
+    sim.t += sim.dt;
+  }
+
+  // ====== Rocket drawing ======
+  function drawRocket(ctx, x, y, angle, phase, t){
+    ctx.save();
+    ctx.translate(x,y);
+    if(phase==='chute'){
+      // パラシュート描画（本体は垂直）
+      var L = 28, W = 7;
+      // canopy
+      ctx.save();
+      ctx.translate(0, -34);
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.arc(0,0,16,Math.PI,0,false);
+      ctx.lineTo(16,0);
+      ctx.closePath();
+      ctx.fill();
+      // strings
+      ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-12,0); ctx.lineTo(-2,-4);
+      ctx.moveTo(  0,0); ctx.lineTo( 0,-4);
+      ctx.moveTo( 12,0); ctx.lineTo( 2,-4);
+      ctx.stroke();
+      ctx.restore();
+      // body (vertical)
+      ctx.rotate(-Math.PI/2); // point to up-screen
+      ctx.fillStyle = "#93c5fd";
+      // body tube
+      roundRect(ctx, -L*0.35, -W/2, L*0.7, W, 3); ctx.fill();
+      // nose
+      ctx.beginPath(); ctx.moveTo(L*0.35,0); ctx.lineTo(L*0.35+8,-W/2); ctx.lineTo(L*0.35+8,W/2); ctx.closePath(); ctx.fillStyle="#60a5fa"; ctx.fill();
+      // fins
+      ctx.fillStyle="#38bdf8";
+      ctx.beginPath(); ctx.moveTo(-L*0.35, -W/2);
+      ctx.lineTo(-L*0.35-8, -W/2-6);
+      ctx.lineTo(-L*0.35, -W/2+2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-L*0.35, W/2);
+      ctx.lineTo(-L*0.35-8, W/2+6);
+      ctx.lineTo(-L*0.35, W/2-2); ctx.closePath(); ctx.fill();
+    } else {
+      // 通常飛行：ロケットを速度方向に回転
+      ctx.rotate(angle);
+      var L2=28, W2=7;
+      // body tube
+      ctx.fillStyle = "#93c5fd";
+      roundRect(ctx, -L2*0.35, -W2/2, L2*0.7, W2, 3); ctx.fill();
+      // nose
+      ctx.beginPath(); ctx.moveTo(L2*0.35,0); ctx.lineTo(L2*0.35+8,-W2/2); ctx.lineTo(L2*0.35+8,W2/2); ctx.closePath(); ctx.fillStyle="#60a5fa"; ctx.fill();
+      // fins
+      ctx.fillStyle="#38bdf8";
+      ctx.beginPath(); ctx.moveTo(-L2*0.35, -W2/2);
+      ctx.lineTo(-L2*0.35-8, -W2/2-6);
+      ctx.lineTo(-L2*0.35, -W2/2+2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-L2*0.35, W2/2);
+      ctx.lineTo(-L2*0.35-8, W2/2+6);
+      ctx.lineTo(-L2*0.35, W2/2-2); ctx.closePath(); ctx.fill();
+      // flame during boost
+      if(phase==='boost'){
+        var flick = 8 + 4*Math.sin(t*20);
+        ctx.fillStyle = "#f59e0b";
+        ctx.beginPath(); ctx.moveTo(-L2*0.35, 0);
+        ctx.lineTo(-L2*0.35- (10+flick), -3);
+        ctx.lineTo(-L2*0.35- (10+flick),  3);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.lineTo(x+w-r,y);
+    ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);
+    ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);
+    ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();
+  }
+
+  // ====== 描画 ======
+  function draw(sim){
+    var pad = 30;
+    var W=view.width, H=view.height;
+    // 背景
+    var grd = vctx.createLinearGradient(0,0,0,H);
+    grd.addColorStop(0,'#0b1220'); grd.addColorStop(0.6,'#0b1220'); grd.addColorStop(1,'#0e0f14');
+    vctx.fillStyle = grd; vctx.fillRect(0,0,W,H);
+
+    // スケール
+    var maxY = Math.max(60, sim.maxY*1.1);
+    var maxX = Math.max(60, Math.max(sim.x, 1)*1.2);
+    var sx = (W - pad*2) / (maxX+1e-6);
+    var sy = (H - pad*2) / (maxY+1e-6);
+
+    // 地面
+    vctx.strokeStyle = "#334155";
+    vctx.lineWidth = 1;
+    vctx.beginPath();
+    vctx.moveTo(pad, H-pad);
+    vctx.lineTo(W-pad, H-pad);
+    vctx.stroke();
+
+    // 軌跡
+    var i, px, py;
+    for(i=1;i<sim.hist.length;i++){
+      var h0=sim.hist[i-1], h1=sim.hist[i];
+      var color="#60a5fa";
+      if(h1.phase==='coast') color="#34d399";
+      if(h1.phase==='chute') color="#f87171";
+      vctx.strokeStyle=color; vctx.lineWidth=2;
+      vctx.beginPath();
+      px=pad + h0.x*sx; py=H-pad - h0.y*sy;
+      vctx.moveTo(px,py);
+      px=pad + h1.x*sx; py=H-pad - h1.y*sy;
+      vctx.lineTo(px,py);
+      vctx.stroke();
+    }
+
+    // ロケット描画
+    var rx = pad + sim.x*sx, ry = H - pad - sim.y*sy;
+    // 速度ベクトル→画面角度（キャンバスは下向きが+Y）
+    var ang = Math.atan2(-sim.vy, sim.vx);
+    // boost直後はvxが0に近いことがあるので、速度が極小なら打上角方向を向ける
+    if(Math.sqrt(sim.vx*sim.vx + sim.vy*sim.vy) < 0.2){ ang = -Math.PI + (Math.PI/2 - ANG); }
+    drawRocket(vctx, rx, ry, ang, sim.phase, sim.t);
+
+    // イベントマーク
+    for(i=0;i<sim.events.length;i++){
+      var ev=sim.events[i];
+      var idx = Math.max(0, Math.floor(ev.t/sim.dt)-1);
+      var h = sim.hist[idx] || sim.hist[0];
+      var ex = pad + (h?h.x:0)*sx, ey = H - pad - (h?h.y:0)*sy;
+      vctx.fillStyle = ev.type==='burnout' ? "#34d399" : (ev.type==='touchdown' ? "#f87171" : "#fbbf24");
+      vctx.beginPath(); vctx.arc(ex, ey, 5, 0, Math.PI*2); vctx.fill();
+    }
+  }
+
+  function finish(sim){
+    // KPI
+    kApogee.textContent = sim.maxY.toFixed(1);
+    var range = 0;
+    if(sim.hist.length){ range = sim.hist[sim.hist.length-1].x; }
+    kRange.textContent = Math.max(0, range).toFixed(1);
+    kTflight.textContent = sim.t.toFixed(2);
+    kVmax.textContent = sim.maxV.toFixed(1);
+  }
+
+  // ====== ループ ======
+  function loop(){
+    if(!sim || paused){ rafId = requestAnimationFrame(loop); return; }
+    var i;
+    for(i=0;i<3;i++){
+      if(sim.phase==='landed'){ break; }
+      step(sim);
+    }
+    draw(sim);
+    if(sim.phase==='landed'){ finish(sim); runBtn.disabled=false; pauseBtn.disabled=true; }
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // ====== UI ======
+  function start(){
+    logBox.innerHTML='';
+    sim = makeSim();
+    paused=false;
+    runBtn.disabled=true;
+    pauseBtn.disabled=false;
+    log('発射！ 打上角度 80°（水平から） / エンジン '+engineSel.value);
+    loop(); // ← 開始ボタンで初めてループ開始
+  }
+  function pause(){
+    paused = !paused;
+    pauseBtn.textContent = paused? '再開' : '一時停止';
+  }
+  function reset(){
+    paused=true;
+    runBtn.disabled=false;
+    pauseBtn.disabled=true;
+    pauseBtn.textContent='一時停止';
+    sim = makeSim();
+    draw(sim);
+    kApogee.textContent='—'; kRange.textContent='—'; kTflight.textContent='—'; kVmax.textContent='—';
+    logBox.innerHTML='';
+  }
+
+  runBtn.addEventListener('click', start, false);
+  pauseBtn.addEventListener('click', pause, false);
+  resetBtn.addEventListener('click', reset, false);
+  speedInp.addEventListener('input', function(){ speedOut.textContent = (parseFloat(this.value)||1).toFixed(2)+'×'; }, false);
+
+  // 初期化（自動再生しない）：静止画のみ描画
+  speedOut.textContent = (parseFloat(speedInp.value)||1).toFixed(2)+'×';
+  sim = makeSim();
+  paused = true;
+  draw(sim);
+  // ループは開始ボタンまで動かさない
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>二つの進行波が重なるシミュレーター</title>
+<style>
+  :root{
+    --bg:#eaf6ff; --panel:#141a2f; --ink:#0b1424; --muted:#9fb0d9;
+    --accent:#7aa2ff; --accent2:#a6e3a1; --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1400px 900px at -10% -10%, #7aa2ff1a, transparent 50%),
+                              radial-gradient(1000px 700px at 110% 10%, #a6e3a10f, transparent 55%),
+                              var(--bg);
+       color:var(--ink);font-family:ui-sans-serif,system-ui,"Noto Sans JP",sans-serif;}
+  header{position:sticky;top:0;z-index:5;padding:14px 18px;background:#0f1424aa;backdrop-filter:blur(6px);
+          border-bottom:1px solid #ffffff14}
+  header h1{margin:0;font-size:18px}
+  header .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  main{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;padding:14px}
+  @media (max-width: 1000px){main{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,#ffffff0c,#ffffff06);border:1px solid #ffffff14;border-radius:16px;box-shadow:0 12px 28px #0006}
+  .pad{padding:14px}
+  canvas{width:100%;height:360px;background:linear-gradient(180deg,#0002,#0000), #eaf6ff; border-radius:12px; display:block}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;gap:10px}
+  .grid.cols-2{grid-template-columns:1fr 1fr}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+  .control{display:flex;align-items:center;gap:10px}
+  .control label{min-width:7.5em;color:var(--muted);font-size:12px}
+  input[type="range"]{width:100%}
+  .pill{border:1px solid #ffffff22;border-radius:999px;padding:6px 10px;font-size:12px;background:#ffffff06}
+  button{appearance:none;border:none;cursor:pointer;border-radius:12px;padding:8px 12px;font-weight:700;color:#07121e;background:#e3edff}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid #ffffff22}
+  button.green{background:var(--accent2)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap}
+  .dot{display:inline-flex;align-items:center;gap:6px}
+  .dot::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%}
+  .dot.wave1::before{background:#7aa2ff}
+  .dot.wave2::before{background:#a6e3a1}
+  .dot.sum::before{background:#ffd166}
+  .dot.crest::before{background:#ff6b6b}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>二つの進行波が重なるシミュレーター</h1>
+  <div class="sub">y₁(x,t)=A₁ sin(k₁x−ω₁t+φ₁), y₂(x,t)=A₂ sin(k₂x−ω₂t+φ₂). 和 y=y₁+y₂ を描画。山（極大）の一致を自動検出して可視化。</div>
+</header>
+
+<main>
+  <section class="card pad">
+    <canvas id="cv" width="1200" height="400"></canvas>
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <div class="legend">
+        <span class="dot wave1">波1</span>
+        <span class="dot wave2">波2</span>
+        <span class="dot sum">合成波</span>
+        <span class="dot crest">山の一致</span>
+      </div>
+      <div>
+        <span class="pill">x軸: 0〜L（任意単位）</span>
+        <span class="pill">t=<span id="tval">0.00</span>s</span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="card pad">
+    <div class="grid cols-2">
+      <div class="control"><label>L（長さ）</label><input type="range" id="L" min="5" max="30" step="0.5" value="20"><span class="pill" id="Lval">20</span></div>
+      <div class="control"><label>描画速度</label><input type="range" id="speed" min="0" max="2" step="0.01" value="1"><span class="pill" id="speedval">1.00×</span></div>
+    </div>
+
+    <hr style="border:0;border-top:1px dashed #ffffff24;margin:10px 0">
+
+    <div class="grid">
+      <b>波1</b>
+      <div class="control"><label>A₁（振幅）</label><input type="range" id="A1" min="0" max="2" step="0.01" value="1"><span class="pill" id="A1v">1.00</span></div>
+      <div class="control"><label>λ₁（波長）</label><input type="range" id="lam1" min="1" max="20" step="0.1" value="6"><span class="pill" id="lam1v">6.0</span></div>
+      <div class="control"><label>v₁（位相速度）</label><input type="range" id="v1" min="0" max="10" step="0.1" value="3"><span class="pill" id="v1v">3.0</span></div>
+      <div class="control"><label>φ₁（位相）</label><input type="range" id="phi1" min="-3.1416" max="3.1416" step="0.01" value="0"><span class="pill" id="phi1v">0.00</span></div>
+    </div>
+
+    <div class="grid" style="margin-top:6px">
+      <b>波2</b>
+      <div class="control"><label>A₂（振幅）</label><input type="range" id="A2" min="0" max="2" step="0.01" value="1"><span class="pill" id="A2v">1.00</span></div>
+      <div class="control"><label>λ₂（波長）</label><input type="range" id="lam2" min="1" max="20" step="0.1" value="6"><span class="pill" id="lam2v">6.0</span></div>
+      <div class="control"><label>v₂（位相速度）</label><input type="range" id="v2" min="0" max="10" step="0.1" value="3"><span class="pill" id="v2v">3.0</span></div>
+      <div class="control"><label>φ₂（位相）</label><input type="range" id="phi2" min="-3.1416" max="3.1416" step="0.01" value="0"><span class="pill" id="phi2v">0.00</span></div>
+    </div>
+
+    <hr style="border:0;border-top:1px dashed #ffffff24;margin:10px 0">
+
+    <div class="row">
+      <button id="toggle" class="green">⏸ 一時停止</button>
+      <button id="step" class="ghost">⏭ 1/60 秒進める</button>
+      <button id="crestNow" class="ghost">🎯 今この場所で山を一致</button>
+      <button id="reset" class="ghost">↺ リセット</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label class="pill"><input id="lockWL" type="checkbox" checked> λ₁=λ₂, v₁=v₂ をロック</label>
+      <label class="pill"><input id="showSum" type="checkbox" checked> 合成波を表示</label>
+      <label class="pill"><input id="bothDir" type="checkbox"> 波2を左向きに（定在波に近い）</label>
+    </div>
+    <small>ヒント：山（極大）は sin の位相が π/2 + 2πn の位置。λとvが等しく、φ差が0なら強め合い、πなら打ち消し合いになります。</small>
+  </aside>
+</main>
+
+<script>
+(function(){
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = () => cv.width, H = () => cv.height; // device pixels（固定）
+
+  // UI Elements
+  const $ = id => document.getElementById(id);
+  const state = {
+    L: 20,
+    A1: 1, lam1: 6, v1: 3, phi1: 0,
+    A2: 1, lam2: 6, v2: 3, phi2: 0,
+    lockWL: true,
+    showSum: true,
+    bothDir: false,
+    run: true,
+    speed: 1,
+    t: 0
+  };
+
+  // Bind sliders
+  const binds = [
+    ['L','Lval','%0.0f',v=>state.L=v],
+    ['speed','speedval','%0.2f×',v=>state.speed=v],
+    ['A1','A1v','%0.2f',v=>state.A1=v],
+    ['lam1','lam1v','%0.1f',v=>{state.lam1=v; if(state.lockWL){ $('lam2').value=v; $('lam2v').textContent=v.toFixed(1); state.lam2=v; }}],
+    ['v1','v1v','%0.1f',v=>{state.v1=v; if(state.lockWL){ $('v2').value=v; $('v2v').textContent=v.toFixed(1); state.v2=v; }}],
+    ['phi1','phi1v','%0.2f',v=>state.phi1=v],
+    ['A2','A2v','%0.2f',v=>state.A2=v],
+    ['lam2','lam2v','%0.1f',v=>state.lam2=v],
+    ['v2','v2v','%0.1f',v=>state.v2=v],
+    ['phi2','phi2v','%0.2f',v=>state.phi2=v]
+  ];
+  for(const [id,lbl,fmt,setter] of binds){
+    const el=$(id), lab=$(lbl); lab.textContent=fmt.replace('%', '').includes('×')? '': '';
+    const update = ()=>{ const v=parseFloat(el.value); setter(v); lab.textContent = (fmt.replace('%0.0f',v.toFixed(0)).replace('%0.1f',v.toFixed(1)).replace('%0.2f',v.toFixed(2))); };
+    el.addEventListener('input', update); update();
+  }
+
+  $('lockWL').onchange = e=>{ state.lockWL = e.target.checked; if(state.lockWL){ $('lam2').value=state.lam1; $('lam2v').textContent=state.lam1.toFixed(1); state.lam2=state.lam1; $('v2').value=state.v1; $('v2v').textContent=state.v1.toFixed(1); state.v2=state.v1; }};
+  $('showSum').onchange = e=> state.showSum = e.target.checked;
+  $('bothDir').onchange = e=> state.bothDir = e.target.checked;
+
+  $('toggle').onclick = ()=>{ state.run = !state.run; $('toggle').textContent = state.run ? '⏸ 一時停止' : '▶ 再開'; };
+  $('step').onclick = ()=>{ state.t += (1/60) * state.speed; draw(); };
+  $('reset').onclick = ()=>{ state.t = 0; state.phi1=0; state.phi2=0; $('phi1').value=0; $('phi2').value=0; $('phi1v').textContent='0.00'; $('phi2v').textContent='0.00'; };
+
+  // Align phases so that crests overlap at canvas center x
+  $('crestNow').onclick = ()=>{
+    const x0 = state.L/2; // target x
+    const k1 = 2*Math.PI/state.lam1, k2 = 2*Math.PI/state.lam2;
+    const w1 = k1*state.v1, w2 = k2*state.v2;
+    // crest when argument = pi/2 + 2πn. Set φ2 so both equal.
+    const arg1 = k1*x0 - w1*state.t + state.phi1;
+    // choose n so φ2 in [-π,π] as close as possible
+    let target = arg1; if(state.bothDir){ // wave2 left-going: arg = k2*x + w2*t + φ2
+      target = arg1; // still want equal; equation φ2 = target - (k2*x0 + w2*t)
+      const phi2 = (target - (k2*x0 + w2*state.t));
+      state.phi2 = wrapPi(phi2);
+    } else {
+      const phi2 = (target - (k2*x0 - w2*state.t));
+      state.phi2 = wrapPi(phi2);
+    }
+    $('phi2').value = state.phi2; $('phi2v').textContent = state.phi2.toFixed(2);
+  };
+
+  function wrapPi(a){
+    // map to [-π, π]
+    a = (a + Math.PI) % (2*Math.PI); if(a<0) a += 2*Math.PI; return a - Math.PI;
+  }
+
+  // Physics helpers
+  function y1(x,t){ const k=2*Math.PI/state.lam1, w=k*state.v1; return state.A1 * Math.sin(k*x - w*t + state.phi1); }
+  function y2(x,t){ const k=2*Math.PI/state.lam2, w=k*state.v2; const s = state.bothDir? +1 : -1; // + for left-going (x + wt)
+                    return state.A2 * Math.sin(k*x + s*w*t + state.phi2); }
+
+  // Rendering
+  function draw(){
+    const w = W(), h = H();
+    ctx.clearRect(0,0,w,h);
+    const pad = 40;
+    const L = state.L;
+    const toX = x => pad + (x/L)*(w-2*pad);
+    const toY = y => h*0.5 - y * 60; // vertical scale (60 px per unit)
+
+    // axes
+    ctx.globalAlpha=1; ctx.lineWidth=1; ctx.strokeStyle='#ffffff22';
+    ctx.beginPath(); ctx.moveTo(pad, h*0.5); ctx.lineTo(w-pad, h*0.5); ctx.stroke();
+
+    // sample points
+    const N = Math.round((w-2*pad)/2); // resolution
+    const xs=[]; const y1s=[], y2s=[], sums=[];
+    for(let i=0;i<=N;i++){
+      const x = L * i / N; xs.push(x);
+      const a = y1(x,state.t); const b = y2(x,state.t); y1s.push(a); y2s.push(b); sums.push(a+b);
+    }
+
+    // helper to stroke polyline
+    function strokeLine(values, color){
+      ctx.lineWidth = 2; ctx.strokeStyle = color; ctx.beginPath();
+      for(let i=0;i<values.length;i++){
+        const X = toX(xs[i]), Y = toY(values[i]);
+        if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+      }
+      ctx.stroke();
+    }
+
+    // draw waves
+    strokeLine(y1s, '#7aa2ff');
+    strokeLine(y2s, '#a6e3a1');
+    if(state.showSum) strokeLine(sums, '#ffd166');
+
+    // find crests (local maxima) of each wave and mark overlaps
+    function findCrests(arr){
+      const idxs=[]; for(let i=1;i<arr.length-1;i++) if(arr[i]>arr[i-1] && arr[i]>arr[i+1]) idxs.push(i); return idxs;
+    }
+    const c1 = findCrests(y1s), c2 = findCrests(y2s);
+    const tol = 6; // pixels tolerance for "overlap"
+    ctx.fillStyle = '#ff6b6b';
+    ctx.strokeStyle = '#ff6b6b';
+    for(const i of c1){
+      const X1 = toX(xs[i]);
+      // find nearest crest of wave2
+      let best=null, dmin=1e9; for(const j of c2){ const X2=toX(xs[j]); const d=Math.abs(X1-X2); if(d<dmin){dmin=d; best=j;} }
+      if(dmin <= tol){
+        const Y = toY((state.showSum? sums[best] : (y1s[i]+y2s[best])));
+        ctx.beginPath(); ctx.arc(X1, Y, 5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+
+    // labels
+    ctx.fillStyle = '#9fb0d9'; ctx.font='12px ui-sans-serif';
+    ctx.fillText('0', toX(0)-6, h*0.5+14);
+    ctx.fillText('L', toX(L)-6, h*0.5+14);
+
+    // time
+    $('tval').textContent = state.t.toFixed(2);
+  }
+
+  // Animation loop
+  let last=performance.now();
+  function tick(now){
+    const dt = Math.min(0.05, (now-last)/1000) * state.speed; last=now;
+    if(state.run) state.t += dt;
+    draw();
+    requestAnimationFrame(tick);
+  }
+  draw(); requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

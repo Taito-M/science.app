@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>円運動ドップラー効果シミュレーター</title>
+<style>
+  :root { --bg:#0b1020; --panel:#121a33; --text:#eef3ff; --accent:#77b6ff; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--text); font-family:system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; }
+  .wrap{ display:grid; grid-template-columns: 1fr 320px; gap:14px; height:100%; }
+  .left{ display:flex; flex-direction:column; }
+  canvas{ background: radial-gradient(1200px 800px at 50% 50%, #0f1733 0%, #0b1020 70%); border-radius:16px; box-shadow: 0 10px 30px rgba(0,0,0,.35); margin:14px; }
+  .panel{ background:var(--panel); margin:14px 14px 14px 0; border-radius:16px; padding:14px; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  h1{ font-size:18px; margin:0 0 10px; letter-spacing:.03em;}
+  .row{ display:grid; grid-template-columns: 110px 1fr 64px; gap:8px; align-items:center; margin:8px 0; }
+  .row label{ font-size:12px; opacity:.9; }
+  input[type="range"]{ width:100%; }
+  .small{ font-size:12px; opacity:.9; }
+  .btns{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  button{ background:#1d2a54; color:var(--text); border:none; padding:8px 12px; border-radius:12px; cursor:pointer; }
+  button:hover{ filter:brightness(1.15); }
+  .legend{ font-size:12px; margin-top:10px; line-height:1.5; }
+  .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:#1a2450; margin-right:6px;}
+  .obs{ display:flex; gap:6px; flex-wrap:wrap; }
+  a.link{ color:#bfe0ff;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <canvas id="cv" width="980" height="720"></canvas>
+  </div>
+  <div class="panel">
+    <h1>円運動ドップラー効果</h1>
+    <div class="small">
+      <div>音源が半径 <span id="valR"></span> m、角速度 <span id="valW"></span> rad/s で円運動。</div>
+      <div>波の速さ <span id="valC"></span> m/s、基準周波数 <span id="valF"></span> Hz。</div>
+      <div>音源速度 v = <span id="valVS"></span> m/s、β=v/c=<span id="valBeta"></span>。</div>
+      <div>（理論上の最大/最小ピッチ比 ≈ <span id="valPitch"></span>）</div>
+    </div>
+
+    <div class="row">
+      <label>波の速さ c</label>
+      <input type="range" id="c" min="60" max="400" step="1" value="200">
+      <span id="cNum">200</span>
+    </div>
+    <div class="row">
+      <label>基準周波数 f</label>
+      <input type="range" id="f" min="0.2" max="5" step="0.05" value="1.2">
+      <span id="fNum">1.20</span>
+    </div>
+    <div class="row">
+      <label>半径 R</label>
+      <input type="range" id="R" min="30" max="260" step="1" value="140">
+      <span id="RNum">140</span>
+    </div>
+    <div class="row">
+      <label>角速度 ω</label>
+      <input type="range" id="w" min="0" max="1.6" step="0.01" value="0.70">
+      <span id="wNum">0.70</span>
+    </div>
+    <div class="row">
+      <label>表示の濃さ</label>
+      <input type="range" id="fade" min="0.2" max="1" step="0.05" value="0.85">
+      <span id="fadeNum">0.85</span>
+    </div>
+
+    <div class="btns">
+      <button id="play">⏸ 一時停止</button>
+      <button id="reset">↺ リセット</button>
+      <button id="clearObs">👂 観測点をクリア</button>
+      <label class="small" style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="showPath" checked> 軌道と速度ベクトル
+      </label>
+      <label class="small" style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="showFrontIdx"> 波面番号
+      </label>
+    </div>
+
+    <div class="legend">
+      <div class="pill">● 赤: 音源</div>
+      <div class="pill">○ 白: 放出された波面（時間とともに拡大）</div>
+      <div class="pill">◆ 黄色: 観測点（クリックで追加）</div>
+      <div class="small">キャンバスをクリックすると観測点を追加、右クリックで最寄りの観測点を削除できます（最大5点）。</div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="small">観測点の測定結果：</div>
+      <div id="obsList" class="obs"></div>
+    </div>
+
+    <div style="margin-top:12px;" class="small">
+      <details>
+        <summary>ヒント</summary>
+        <ul>
+          <li>β = v/c が大きいほど、進行方向の波長は短く、背面では長く見えます。</li>
+          <li>周波数を上げる（波面の間隔が狭い）と、見た目の圧縮/伸長が更に分かりやすくなります。</li>
+          <li>理論上の瞬時ドップラーは f' = f / (1 - (v_r/c))（v_rは音源速度の観測点方向成分）。本シミュレータは波面到達間隔から f' を数値的に測ります。</li>
+        </ul>
+      </details>
+    </div>
+    <div class="small" style="opacity:.7;margin-top:8px;">© Doppler Circular Visualizer — オフラインで動作・外部ライブラリ不使用</div>
+  </div>
+</div>
+
+<script>
+(()=>{
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const cx = W*0.5, cy = H*0.5;
+
+  // UI elements
+  const ui = {
+    c: document.getElementById('c'),
+    f: document.getElementById('f'),
+    R: document.getElementById('R'),
+    w: document.getElementById('w'),
+    fade: document.getElementById('fade'),
+    play: document.getElementById('play'),
+    reset: document.getElementById('reset'),
+    clearObs: document.getElementById('clearObs'),
+    showPath: document.getElementById('showPath'),
+    showFrontIdx: document.getElementById('showFrontIdx'),
+  };
+  const lab = {
+    cNum: document.getElementById('cNum'),
+    fNum: document.getElementById('fNum'),
+    RNum: document.getElementById('RNum'),
+    wNum: document.getElementById('wNum'),
+    fadeNum: document.getElementById('fadeNum'),
+    valR: document.getElementById('valR'),
+    valW: document.getElementById('valW'),
+    valC: document.getElementById('valC'),
+    valF: document.getElementById('valF'),
+    valVS: document.getElementById('valVS'),
+    valBeta: document.getElementById('valBeta'),
+    valPitch: document.getElementById('valPitch'),
+    obsList: document.getElementById('obsList'),
+  };
+
+  // State
+  let c = +ui.c.value;     // wave speed (px/s)
+  let f0 = +ui.f.value;    // emission frequency (Hz -> waves per second)
+  let R = +ui.R.value;     // radius (px)
+  let w = +ui.w.value;     // angular speed (rad/s)
+  let fade = +ui.fade.value;
+
+  // Text labels refresh
+  function updateLabels(){
+    lab.cNum.textContent = c.toFixed(0);
+    lab.fNum.textContent = f0.toFixed(2);
+    lab.RNum.textContent = R.toFixed(0);
+    lab.wNum.textContent = w.toFixed(2);
+    lab.fadeNum.textContent = fade.toFixed(2);
+    // derived
+    const vs = w * R;
+    lab.valR.textContent = R.toFixed(0);
+    lab.valW.textContent = w.toFixed(2);
+    lab.valC.textContent = c.toFixed(0);
+    lab.valF.textContent = f0.toFixed(2);
+    lab.valVS.textContent = vs.toFixed(2);
+    const beta = vs / c;
+    lab.valBeta.textContent = beta.toFixed(3);
+    const pitchMax = 1/(1-Math.min(beta,0.95)); // cap to avoid infinity
+    const pitchMin = 1/(1+Math.min(beta,0.95));
+    lab.valPitch.textContent = `${pitchMin.toFixed(2)} ～ ${pitchMax.toFixed(2)}`;
+  }
+  updateLabels();
+
+  // Observers
+  let obs = [];
+  let obsIdAcc = 1;
+  function addObserver(x, y){
+    if (obs.length >= 5) return;
+    const id = obsIdAcc++;
+    obs.push({ id, x, y, hits: [], lastChecked: 0 });
+    refreshObsList();
+  }
+  function removeNearestObserver(x, y){
+    if (obs.length === 0) return;
+    let best = -1, bestD = 1e9;
+    for (let i=0;i<obs.length;i++){
+      const d = Math.hypot(obs[i].x - x, obs[i].y - y);
+      if (d < bestD){ bestD = d; best = i; }
+    }
+    if (best >= 0) obs.splice(best,1);
+    refreshObsList();
+  }
+
+  function refreshObsList(){
+    lab.obsList.innerHTML = "";
+    for (const o of obs){
+      const div = document.createElement('div');
+      div.style.background = "#172045";
+      div.style.borderRadius = "10px";
+      div.style.padding = "8px 10px";
+      div.style.minWidth = "140px";
+      div.innerHTML = `<div style="font-size:12px;opacity:.9;">観測点 #${o.id}</div>
+        <div style="font-size:12px;">位置: (${(o.x-cx).toFixed(0)}, ${(o.y-cy).toFixed(0)})</div>
+        <div style="font-size:12px;">f' ≈ <b id="f_${o.id}">-</b> Hz</div>
+        <div style="font-size:12px;">λ' ≈ <b id="l_${o.id}">-</b> m</div>
+        <div style="font-size:11px;opacity:.8;">ピッチ比 ×<b id="p_${o.id}">-</b></div>`;
+      lab.obsList.appendChild(div);
+    }
+  }
+
+  // Initial observers
+  addObserver(cx + 300, cy);
+  addObserver(cx, cy - 250);
+
+  // Interaction on canvas
+  cv.addEventListener('click', (e)=>{
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (cv.width/rect.width);
+    const y = (e.clientY - rect.top) * (cv.height/rect.height);
+    addObserver(x,y);
+  });
+  cv.addEventListener('contextmenu', (e)=>{
+    e.preventDefault();
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (cv.width/rect.width);
+    const y = (e.clientY - rect.top) * (cv.height/rect.height);
+    removeNearestObserver(x,y);
+  });
+
+  // Sliders
+  ui.c.oninput = ()=>{ c = +ui.c.value; updateLabels(); };
+  ui.f.oninput = ()=>{ f0 = +ui.f.value; updateLabels(); };
+  ui.R.oninput = ()=>{ R = +ui.R.value; updateLabels(); };
+  ui.w.oninput = ()=>{ w = +ui.w.value; updateLabels(); };
+  ui.fade.oninput = ()=>{ fade = +ui.fade.value; updateLabels(); };
+
+  // Buttons
+  let running = true;
+  ui.play.onclick = ()=>{
+    running = !running;
+    ui.play.textContent = running ? "⏸ 一時停止" : "▶ 再生";
+  };
+  ui.reset.onclick = ()=> resetSim();
+  ui.clearObs.onclick = ()=>{ obs = []; refreshObsList(); };
+
+  // Simulation
+  let t0 = performance.now()/1000;
+  let last = t0;
+  let simTime = 0;
+
+  function sourcePos(t){
+    const ang = w * t;
+    return { x: cx + R*Math.cos(ang), y: cy + R*Math.sin(ang), ang };
+  }
+
+  const fronts = []; // {te, x0, y0, idx}
+  let nextEmit = 0;
+  let idxEmit = 0;
+
+  function resetSim(){
+    const now = performance.now()/1000;
+    t0 = now;
+    last = now;
+    simTime = 0;
+    fronts.length = 0;
+    nextEmit = 0;
+    idxEmit = 0;
+    for (const o of obs){ o.hits = []; o.lastChecked = 0; }
+  }
+
+  function emitIfNeeded(prevT, curT){
+    const dtEmit = 1/Math.max(0.05, f0);
+    // emit at times k*dtEmit
+    while (nextEmit <= curT){
+      const sp = sourcePos(nextEmit);
+      fronts.push({ te: nextEmit, x0: sp.x, y0: sp.y, idx: idxEmit++ });
+      nextEmit += dtEmit;
+    }
+    // Cull old fronts
+    const maxReach = Math.hypot(W, H) + R + 60; // px
+    const maxAge = maxReach / c + 2.0; // seconds
+    while (fronts.length && (curT - fronts[0].te) > maxAge){
+      fronts.shift();
+    }
+  }
+
+  function measureObservers(prevT, curT){
+    for (const o of obs){
+      // advance lastChecked up to curT, logging hits in (prevT,curT]
+      for (const fr of fronts){
+        const d = Math.hypot(o.x - fr.x0, o.y - fr.y0);
+        const thit = fr.te + d / c;
+        if (thit > prevT && thit <= curT){
+          o.hits.push(thit);
+          if (o.hits.length > 64) o.hits.shift();
+        }
+      }
+      // compute instantaneous freq from last few intervals
+      const labelF = document.getElementById('f_'+o.id);
+      const labelL = document.getElementById('l_'+o.id);
+      const labelP = document.getElementById('p_'+o.id);
+      if (o.hits.length >= 3){
+        const n = o.hits.length;
+        const intervals = [];
+        for (let i=n-1; i>=1 && intervals.length<5; i--){
+          intervals.push(o.hits[i] - o.hits[i-1]);
+        }
+        const mean = intervals.reduce((a,b)=>a+b,0)/intervals.length;
+        const fhat = 1/mean;
+        labelF.textContent = fhat.toFixed(2);
+        labelL.textContent = (c / fhat).toFixed(1);
+        labelP.textContent = (fhat / f0).toFixed(2);
+      }else{
+        labelF.textContent = "-";
+        labelL.textContent = "-";
+        labelP.textContent = "-";
+      }
+    }
+  }
+
+  function drawBackground(){
+    // grid
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#90a9ff";
+    const step = 80;
+    for (let x = (cx%step); x <= W; x += step){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+    for (let y = (cy%step); y <= H; y += step){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+    ctx.globalAlpha = 0.28;
+    // axes
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawBackground();
+
+    // path
+    if (ui.showPath.checked){
+      ctx.save();
+      ctx.strokeStyle = "rgba(180,210,255,.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // wavefronts
+    const now = simTime;
+    const maxReach = Math.hypot(W, H) + R + 60;
+    const maxAge = maxReach / c + 2.0;
+    ctx.save();
+    for (const fr of fronts){
+      const age = now - fr.te;
+      if (age < 0) continue;
+      const r = age * c;
+      const a = Math.max(0, 1 - age / maxAge) * fade;
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(fr.x0, fr.y0, r, 0, Math.PI*2);
+      ctx.stroke();
+
+      if (ui.showFrontIdx.checked && a > 0.35){
+        ctx.globalAlpha = Math.min(0.85, a+0.15);
+        ctx.fillStyle = "#e4ecff";
+        ctx.font = "12px ui-sans-serif, system-ui";
+        ctx.fillText(fr.idx.toString(), fr.x0+6, fr.y0-6);
+      }
+    }
+    ctx.restore();
+
+    // observers
+    for (const o of obs){
+      ctx.save();
+      ctx.fillStyle = "#ffd44a";
+      ctx.strokeStyle = "#2a2200";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y);
+      ctx.lineTo(o.x+0.01,o.y); // tiny to enable stroke join
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y - 8);
+      ctx.lineTo(o.x - 6, o.y + 6);
+      ctx.lineTo(o.x + 6, o.y + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // source
+    const sp = sourcePos(now);
+    // velocity vector
+    if (ui.showPath.checked){
+      const vs = w * R;
+      const vx = -vs * Math.sin(sp.ang);
+      const vy =  vs * Math.cos(sp.ang);
+      ctx.save();
+      ctx.strokeStyle = "#88ffb3";
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sp.x, sp.y);
+      ctx.lineTo(sp.x + vx*0.6, sp.y + vy*0.6);
+      ctx.stroke();
+      // arrow head
+      const ahx = sp.x + vx*0.6, ahy = sp.y + vy*0.6;
+      const ang = Math.atan2(vy, vx);
+      const L = 10;
+      ctx.beginPath();
+      ctx.moveTo(ahx, ahy);
+      ctx.lineTo(ahx - L*Math.cos(ang - 0.4), ahy - L*Math.sin(ang - 0.4));
+      ctx.lineTo(ahx - L*Math.cos(ang + 0.4), ahy - L*Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fillStyle = "#88ffb3";
+      ctx.fill();
+      ctx.restore();
+    }
+    // source dot
+    ctx.save();
+    ctx.fillStyle = "#ff5b5b";
+    ctx.strokeStyle = "#3a0610";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 7, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function loop(){
+    const now = performance.now()/1000;
+    const dtReal = now - last;
+    last = now;
+    if (running){
+      simTime += Math.min(0.05, dtReal); // clamp to keep stable
+      const prev = simTime - Math.min(0.05, dtReal);
+      emitIfNeeded(prev, simTime);
+      measureObservers(prev, simTime);
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>
