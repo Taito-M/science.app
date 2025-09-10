@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orbital Postcards – 明るい軌道シミュレーター (v1.1)</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --ink:#1f2937; /* slate-800 */
+    --sub:#6b7280; /* slate-500 */
+    --accent:#7EC8E3; /* パステル水色 */
+    --accent2:#FFD166; /* パステル黄 */
+    --panel:#f7fafc; /* very light */
+    --chip:#eef6fb;
+    --grid:#eef2f7;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", Meiryo, "Noto Sans JP", sans-serif;
+    line-height:1.5;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid #e5e7eb; position:sticky; top:0; background:var(--bg); z-index:10;
+  }
+  .brand{font-weight:800; letter-spacing:.3px; font-size:20px;}
+  .brand small{font-weight:600; color:var(--sub); margin-left:.5rem;}
+  .accent-bar{height:6px; background: linear-gradient(90deg, var(--accent), var(--accent2));}
+
+  .wrap{display:grid; grid-template-columns: 1fr 320px; gap:12px; padding:12px; height: calc(100% - 66px);}
+  @media (max-width: 900px){
+    .wrap{grid-template-columns: 1fr; height:auto;}
+  }
+
+  #stage{position:relative; background:var(--panel); border-radius:16px; box-shadow: 0 2px 12px rgba(0,0,0,.05);}
+  canvas{display:block; width:100%; height:100%; border-radius:16px;}
+  .hud{position:absolute; left:12px; top:12px; display:flex; gap:8px; flex-wrap:wrap;}
+  .chip{background:var(--chip); color:#0f172a; border:1px solid #dbeafe; padding:6px 10px; border-radius:999px; font-size:12px; box-shadow:0 1px 0 rgba(0,0,0,.04);}
+
+  .panel{background:var(--panel); border-radius:16px; padding:14px; box-shadow: 0 2px 12px rgba(0,0,0,.05);}
+  .panel h2{font-size:16px; margin:4px 0 10px;}
+  .row{margin:10px 0 14px;}
+  .row label{font-size:13px; color:var(--sub); display:flex; justify-content:space-between;}
+  .row .val{margin-left:8px; font-weight:700; color:#0f172a;}
+  input[type=range]{width:100%;}
+  .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;}
+  .btn{appearance:none; border:none; background: var(--accent); color:#053b53; padding:10px 14px; border-radius:12px; font-weight:700; cursor:pointer;}
+  .btn.secondary{background:#e2e8f0; color:#0f172a;}
+  .btn.warn{background:var(--accent2); color:#5b3f00;}
+  .tog{display:flex; align-items:center; gap:8px; font-size:14px;}
+  .small{font-size:12px; color:var(--sub);}
+  .help{margin-top:8px; font-size:12px; color:var(--sub);}
+
+  footer{padding:8px 14px 16px; text-align:center; color:var(--sub);}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">Orbital Postcards <small>ケプラーの法則を“手ざわり”で</small></div>
+    <div class="tog"><input id="toggleGrid" type="checkbox" checked><label for="toggleGrid">薄いガイド表示</label></div>
+  </header>
+  <div class="accent-bar"></div>
+
+  <div class="wrap">
+    <section id="stage">
+      <canvas id="sim" aria-label="軌道シミュレーションキャンバス"></canvas>
+      <div class="hud" id="hud"></div>
+    </section>
+
+    <aside class="panel">
+      <h2>設定（単位は相対）</h2>
+      <div class="row">
+        <label for="a">半長軸 a <span class="val" id="aVal">1.00</span></label>
+        <input id="a" type="range" min="0.6" max="5" step="0.01" value="1" />
+      </div>
+      <div class="row">
+        <label for="e">離心率 e <span class="val" id="eVal">0.20</span></label>
+        <input id="e" type="range" min="0" max="0.9" step="0.01" value="0.20" />
+      </div>
+      <div class="row">
+        <label for="speed">再生速度 × <span class="val" id="speedVal">1.0</span></label>
+        <input id="speed" type="range" min="0.2" max="8" step="0.1" value="1" />
+      </div>
+      <div class="row">
+        <label for="blink">点滅の強さ <span class="val" id="blinkVal">0.00</span></label>
+        <input id="blink" type="range" min="0" max="2" step="0.05" value="0" />
+      </div>
+      <div class="row">
+        <label>表示</label>
+        <div class="tog"><input id="showSectors" type="checkbox" checked><label for="showSectors">等面積“扇形”を表示</label></div>
+        <div class="tog"><input id="showTrail" type="checkbox" checked><label for="showTrail">軌跡（薄い線）</label></div>
+        <div class="tog"><input id="showAreal" type="checkbox" checked><label for="showAreal">面積速度ストリーマ</label></div>
+      </div>
+      <div class="row">
+        <label for="awindow">ストリーマ表示時間 s <span class="val" id="awVal">3.0</span></label>
+        <input id="awindow" type="range" min="0.5" max="8" step="0.1" value="3" />
+      </div>
+      <div class="btns">
+        <button class="btn" id="play">▶ 再生</button>
+        <button class="btn secondary" id="pause">⏸ 停止</button>
+        <button class="btn secondary" id="reset">↺ リセット</button>
+        <button class="btn warn" id="save">🖼 ポストカード保存</button>
+      </div>
+      <p class="help">ヒント：等時間ごとの“扇形”面積が常に同じ → <b>ケプラー第2法則</b>。楕円 + 太陽が焦点 → <b>第1法則</b>。<br>半長軸 a を変えると周期 T ∝ a<sup>3/2</sup> → <b>第3法則</b>。</p>
+      <p class="small">※ 単位系は GM=1 の相対表示。教材用に最小構成で実装しています（完全オフライン）。</p>
+    </aside>
+  </div>
+
+  <footer>© 2025 Orbital Postcards – lightweight classroom edition</footer>
+
+<script>
+(()=>{
+  // ====== 基本状態 ======
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+
+  const ui = {
+    a: document.getElementById('a'), aVal: document.getElementById('aVal'),
+    e: document.getElementById('e'), eVal: document.getElementById('eVal'),
+    speed: document.getElementById('speed'), speedVal: document.getElementById('speedVal'),
+    blink: document.getElementById('blink'), blinkVal: document.getElementById('blinkVal'),
+    play: document.getElementById('play'), pause: document.getElementById('pause'),
+    reset: document.getElementById('reset'), save: document.getElementById('save'),
+    showSectors: document.getElementById('showSectors'), showTrail: document.getElementById('showTrail'),
+    showAreal: document.getElementById('showAreal'), awindow: document.getElementById('awindow'), awVal: document.getElementById('awVal'),
+    toggleGrid: document.getElementById('toggleGrid'),
+  };
+
+  // 物理定数（相対単位）
+  const MU = 1.0; // G*M
+  let a = parseFloat(ui.a.value);     // 半長軸
+  let e = parseFloat(ui.e.value);     // 離心率
+  let t = 0;                          // 経過時間（相対）
+  let playing = false;
+  let lastTs = 0;
+  let trail = []; // 位置履歴（描画用）
+  const TRAIL_MAX = 800;
+
+  // 面積速度ストリーマ設定
+  let arealWindow = 3.0; // 秒（相対）
+  const AREAL_STEPS = 90; // ウェッジ分割
+
+  // セクター（等時間）設定
+  let sectors = [];
+  const N_SECT = 16;     // 扇形の数（1周を分割）
+  const ARC_STEPS = 18;  // 扇形の辺を滑らかにするサンプル数
+
+  function period(a){ return 2*Math.PI*Math.sqrt(a*a*a/MU); }
+  function meanMotion(a){ return Math.sqrt(MU/(a*a*a)); }
+
+  // ウィンドウ・キャンバス設定
+  function resize(){
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', ()=>{ resize(); });
+
+  // ケプラー方程式 E - e sinE = M を解く
+  function solveKepler(M, e){
+    // M を 0..2π に正規化
+    M = (M % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+    let E = e < 0.8 ? M : Math.PI; // 初期値
+    for(let i=0;i<12;i++){
+      const f = E - e*Math.sin(E) - M;
+      const fp = 1 - e*Math.cos(E);
+      E = E - f/fp;
+    }
+    return E;
+  }
+
+  // E→真近点離角νと半径r
+  function stateFromE(a,e,E){
+    const cosE = Math.cos(E), sinE = Math.sin(E);
+    const r = a*(1 - e*cosE);
+    const nu = Math.atan2( Math.sqrt(1-e*e)*sinE, cosE - e );
+    return {r, nu};
+  }
+
+  // 速度（スカラー） v = sqrt(mu*(2/r - 1/a))
+  function speed(a, r){ return Math.sqrt(MU*(2/r - 1/a)); }
+
+  // シーン座標変換（焦点＝原点→キャンバス）
+  function getScaleAndOrigin(){
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    const rMax = a*(1+e); // アフェリオン距離が最大
+    const m = 0.45 * Math.min(W, H) / rMax; // 余白込みで収める
+    return { m, cx: W*0.52, cy: H*0.5 }; // 少し右寄せにして見やすく
+  }
+  function toXY(r, nu){
+    const {m,cx,cy} = getScaleAndOrigin();
+    const x = cx + m * r * Math.cos(nu);
+    const y = cy + m * r * Math.sin(nu);
+    return {x,y};
+  }
+
+  // 扇形（等時間）を再計算
+  function recomputeSectors(){
+    sectors.length = 0;
+    const T = period(a);
+    for(let i=0;i<N_SECT;i++){
+      const t0 = i*T/N_SECT;
+      const t1 = (i+1)*T/N_SECT;
+      sectors.push({t0,t1});
+    }
+  }
+
+  // HUD 更新
+  function setChip(text){
+    hud.innerHTML = '';
+    const c = document.createElement('div'); c.className = 'chip'; c.textContent = text; hud.appendChild(c);
+  }
+
+  // グリッド描画
+  function drawGrid(){
+    if(!ui.toggleGrid.checked) return;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    const grid = getComputedStyle(document.documentElement).getPropertyValue('--grid');
+    ctx.save();
+    ctx.strokeStyle = grid;
+    ctx.lineWidth = 1;
+    const step = 50; // px
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,H); }
+    for(let y=0;y<=H;y+=step){ ctx.moveTo(0,y); ctx.lineTo(W,y); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 楕円（軌道線）描画
+  function drawOrbit(){
+    const {m,cx,cy} = getScaleAndOrigin();
+    // 楕円の幾何パラメータ
+    const b = a*Math.sqrt(1-e*e);
+    const c = a*e; // 焦点距離
+
+    // スタイル
+    ctx.save();
+    ctx.strokeStyle = '#cfd8e3';
+    ctx.lineWidth = 2;
+
+    // パス生成（中心は焦点から +c の位置）
+    ctx.beginPath();
+    const steps = 240;
+    for(let i=0;i<=steps;i++){
+      const theta = i/steps * 2*Math.PI;
+      // 真円パラメータの楕円式（中心基準）
+      const px = a*Math.cos(theta); // 楕円中心基準
+      const py = b*Math.sin(theta);
+      const x = cx + (px - c)*m;  // 焦点を原点にするため中心を左へ c
+      const y = cy + py*m;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    // 焦点（太陽）
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 等面積：扇形群描画（淡色）
+  function drawSectors(time){
+    if(!ui.showSectors.checked) return;
+    const T = period(a);
+    const n = meanMotion(a);
+    const {cx,cy} = getScaleAndOrigin();
+
+    for(let i=0;i<sectors.length;i++){
+      const seg = sectors[i];
+      const active = (time % T) >= seg.t0 && (time % T) < seg.t1;
+
+      // t0..t1 を細分割してポリゴン化
+      const pts = [];
+      for(let k=0;k<=ARC_STEPS;k++){
+        const tt = seg.t0 + (seg.t1-seg.t0)*k/ARC_STEPS;
+        const M = n*tt; // 近点通過を t=0 とする
+        const E = solveKepler(M, e);
+        const {r, nu} = stateFromE(a,e,E);
+        pts.push(toXY(r,nu));
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      for(const p of pts){ ctx.lineTo(p.x,p.y); }
+      ctx.closePath();
+      ctx.fillStyle = active ? 'rgba(126,200,227,0.22)' : 'rgba(126,200,227,0.10)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // 面積速度ストリーマ（滑らかな塗り）
+  function drawArealStream(time){
+    if(!ui.showAreal.checked) return;
+    const {cx,cy} = getScaleAndOrigin();
+    const n = meanMotion(a);
+    const t0 = time - arealWindow;
+    const N = AREAL_STEPS;
+    // サンプル点
+    const pts = [];
+    for(let s=0; s<=N; s++){
+      const tt = t0 + (arealWindow * s / N);
+      const M = n*tt;
+      const E = solveKepler(M, e);
+      const st = stateFromE(a,e,E);
+      pts.push(toXY(st.r, st.nu));
+    }
+    // 連続三角形で塗る（古いほど薄く）
+    for(let s=0; s<N; s++){
+      const p0 = pts[s], p1 = pts[s+1];
+      const age = s / N; // 0 古 → 1 新
+      const alpha = 0.06 + 0.22 * (age); // だんだん濃く
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.lineTo(p0.x,p0.y);
+      ctx.lineTo(p1.x,p1.y);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(255,209,102,${alpha})`; // アクセント黄
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // 惑星描画（点滅の既定値は0でOFF）
+  function drawPlanet(time){
+    const n = meanMotion(a);
+    const M = n*time;
+    const E = solveKepler(M, e);
+    const st = stateFromE(a,e,E);
+    const v = speed(a, st.r);
+    const p = toXY(st.r, st.nu);
+
+    // 軌跡
+    if(ui.showTrail.checked){
+      trail.push(p);
+      if(trail.length>TRAIL_MAX) trail.shift();
+      ctx.save(); ctx.strokeStyle = 'rgba(15,23,42,0.12)'; ctx.lineWidth=2; ctx.beginPath();
+      for(let i=0;i<trail.length;i++){
+        const q=trail[i]; if(i===0) ctx.moveTo(q.x,q.y); else ctx.lineTo(q.x,q.y);
+      }
+      ctx.stroke(); ctx.restore();
+    } else { trail.length=0; }
+
+    // 点滅（OFF既定、値>0なら弱く）
+    const blinkIntensity = parseFloat(ui.blink.value); // 0..2
+    const f0 = 0.6; // 基本周波数
+    const f = f0 + 1.2 * (v/Math.sqrt(MU/a)) * blinkIntensity; // 代表速度で正規化
+    const pulse = blinkIntensity === 0 ? 0 : (0.5 + 0.5*Math.sin(2*Math.PI*f*time));
+
+    // 外側の柔らかいグロー
+    ctx.save();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 12 + 10*pulse, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,209,102,${0.12 + 0.18*pulse})`; ctx.fill();
+
+    // 本体
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI*2);
+    ctx.fillStyle = '#1f7a9a'; ctx.fill();
+    ctx.strokeStyle = '#053b53'; ctx.lineWidth = 2; ctx.stroke();
+
+    // HUD（面積速度 A˙ = 0.5 * sqrt(mu a (1-e^2))）
+    const areal = 0.5*Math.sqrt(MU*a*(1-e*e));
+    setChip(`a=${a.toFixed(2)}  e=${e.toFixed(2)}  v=${v.toFixed(3)}  A˙=${areal.toFixed(3)}  T∝a^{3/2}=${Math.pow(a,1.5).toFixed(2)}（相対）`);
+
+    ctx.restore();
+  }
+
+  // 1フレーム描画
+  function draw(ts){
+    if(!lastTs) lastTs = ts;
+    const dt = Math.min(0.05, (ts - lastTs)/1000) * parseFloat(ui.speed.value);
+    lastTs = ts;
+    if(playing) t += dt;
+
+    // キャンバスをクリア
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    ctx.clearRect(0,0,W,H);
+
+    drawGrid();
+    drawSectors(t);
+    drawArealStream(t);
+    drawOrbit();
+    drawPlanet(t);
+
+    requestAnimationFrame(draw);
+  }
+
+  // UI イベント
+  function syncUI(){
+    a = parseFloat(ui.a.value); ui.aVal.textContent = a.toFixed(2);
+    e = parseFloat(ui.e.value); ui.eVal.textContent = e.toFixed(2);
+    ui.speedVal.textContent = parseFloat(ui.speed.value).toFixed(1);
+    ui.blinkVal.textContent = parseFloat(ui.blink.value).toFixed(2);
+    arealWindow = parseFloat(ui.awindow.value); ui.awVal.textContent = arealWindow.toFixed(1);
+    recomputeSectors();
+  }
+  ['a','e','speed','blink','showSectors','showTrail','showAreal','awindow','toggleGrid'].forEach(id=>{
+    ui[id].addEventListener('input', ()=>{ syncUI(); });
+    ui[id].addEventListener('change', ()=>{ syncUI(); });
+  });
+
+  ui.play.addEventListener('click', ()=>{ playing = true; });
+  ui.pause.addEventListener('click', ()=>{ playing = false; });
+  ui.reset.addEventListener('click', ()=>{ t = 0; trail.length=0; });
+  ui.save.addEventListener('click', ()=>{
+    // PNG 保存（高DPIでも等倍で保存）
+    const link = document.createElement('a');
+    link.download = `orbital_postcard_a${a.toFixed(2)}_e${e.toFixed(2)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  // 初期化
+  function init(){
+    resize();
+    syncUI();
+    playing = true; // デモ的に最初は動かす
+    requestAnimationFrame(draw);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
