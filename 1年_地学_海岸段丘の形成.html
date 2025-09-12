@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>海岸段丘シミュレーター v1（単独版）</title>
+<style>
+  :root{ --bg:#fafafa; --panel:#ffffff; --ink:#111; --muted:#666; --line:#e5e7eb; --accent:#2563eb; }
+  html,body{height:100%}
+  body{margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", Helvetica, Arial; color:var(--ink); background:linear-gradient(180deg,#ffffff,#f7fbff 80%);} 
+  header{padding:12px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid var(--line); position:sticky; top:0; background:rgba(255,255,255,0.85); backdrop-filter:saturate(180%) blur(8px);} 
+  header h1{font-size:18px; margin:0; font-weight:800; letter-spacing:0.02em}
+  .container{display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px;}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.06);} 
+  .controls{padding:14px; display:flex; flex-direction:column; gap:14px;}
+  .group{border:1px dashed var(--line); border-radius:12px; padding:12px;}
+  .group h3{margin:0 0 8px 0; font-size:14px;}
+  label{font-size:13px; display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0;}
+  input[type="range"]{width:160px;}
+  .row{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+  .btn{appearance:none; border:1px solid var(--line); background:#fff; padding:8px 10px; border-radius:10px; cursor:pointer; font-weight:700;}
+  .btn:hover{border-color:#cbd5e1;}
+  .btn.primary{background:var(--accent); color:#fff; border-color:transparent;}
+  .legend{font-size:12px; color:var(--muted);}
+  canvas{width:100%; height:540px; display:block; border-radius:14px;}
+  footer{padding:8px 16px; font-size:12px; color:#64748b;}
+  .notice{font-size:12px; color:#334155; background:#eff6ff; border:1px solid #dbeafe; padding:8px 10px; border-radius:10px;}
+</style>
+</head>
+<body>
+  <header>
+    <h1>海岸段丘シミュレーター v1（単独版）</h1>
+    <div class="row" style="margin-left:auto;">
+      <button id="btnPlay" class="btn primary">▶ 開始</button>
+      <button id="btnStep" class="btn">⏭ 1ステップ</button>
+      <button id="btnReset" class="btn">⟲ リセット</button>
+      <button id="btnSave" class="btn">🖼 PNG保存</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <aside class="panel">
+      <div class="controls">
+        <div class="group">
+          <h3>基本設定</h3>
+          <label>時間倍率 <input id="timeScale" type="range" min="0.1" max="5" value="1" step="0.1"><span><span id="timeScaleVal">1.0</span>×</span></label>
+          <label>解像度（格子数） <input id="gridN" type="range" min="80" max="400" value="220" step="20"><span id="gridNVal">220</span></label>
+          <label class="row">等高線表示 <input id="chkContours" type="checkbox" checked></label>
+          <label class="row">海面ガイド表示 <input id="chkGuides" type="checkbox" checked></label>
+        </div>
+
+        <div id="coastControls" class="group">
+          <h3>海岸段丘パラメータ</h3>
+          <label>初期地形傾斜 <input id="c_initSlope" type="range" min="0" max="0.02" value="0.006" step="0.001"><span id="c_initSlopeVal">0.006</span></label>
+          <label>地殻隆起速度（m/kyr） <input id="c_uplift" type="range" min="0" max="5" value="1.5" step="0.1"><span id="c_upliftVal">1.5</span></label>
+          <label>海面振幅（m） <input id="c_slAmp" type="range" min="0" max="50" value="25" step="1"><span id="c_slAmpVal">25</span></label>
+          <label>海面周期（kyr） <input id="c_slPer" type="range" min="5" max="150" value="60" step="5"><span id="c_slPerVal">60</span></label>
+          <label>波食（海食台）強度 <input id="c_waveK" type="range" min="0" max="1" value="0.45" step="0.01"><span id="c_waveKVal">0.45</span></label>
+          <label>斜面拡散（侵食拡散）D <input id="c_diff" type="range" min="0" max="0.2" value="0.035" step="0.005"><span id="c_diffVal">0.035</span></label>
+          <label>プラットフォーム幅（格子） <input id="c_platR" type="range" min="2" max="30" value="10" step="1"><span id="c_platRVal">10</span></label>
+        </div>
+
+        <div class="notice">
+          ▶ 開始／⏸ 停止｜⏭ 1ステップ｜⟲ リセット｜🖼 PNG保存<br>
+          海面が上下＋地殻隆起→汀線で海食台を切り、旧汀線が持ち上がって階段状に保存されます。
+        </div>
+      </div>
+    </aside>
+
+    <main class="panel" style="padding:10px;">
+      <canvas id="cv" width="1200" height="540" aria-label="海岸段丘シミュレーション"></canvas>
+      <div class="legend" id="legend" style="padding:8px 12px;">
+        時間: <span id="timeLabel">0.0</span> kyr
+      </div>
+    </main>
+  </div>
+
+  <footer>
+    © 2025 海岸段丘シミュレーター v1（単独版） | 授業利用可（オフライン）
+  </footer>
+
+<script>
+(()=>{
+  const $ = (q)=>document.querySelector(q);
+  const cv = $('#cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const PX_PER_M = 2.2; // 1m→px 視覚スケール
+  let animId = null, running=false, t=0; // kyr
+
+  const linkRange = (id, fmt=(v)=>v)=>{
+    const el = $(id), out = $(id+'Val');
+    const update = ()=>{ if(out) out.textContent = fmt(parseFloat(el.value)); };
+    el.addEventListener('input',update); update();
+    return ()=>parseFloat(el.value);
+  }
+
+  const getTimeScale = linkRange('#timeScale', v=>v.toFixed(1));
+  const getGridN = linkRange('#gridN');
+  const c_initSlope = linkRange('#c_initSlope', v=>v.toFixed(3));
+  const c_uplift    = linkRange('#c_uplift', v=>v.toFixed(1));
+  const c_slAmp     = linkRange('#c_slAmp');
+  const c_slPer     = linkRange('#c_slPer');
+  const c_waveK     = linkRange('#c_waveK', v=>v.toFixed(2));
+  const c_diff      = linkRange('#c_diff',  v=>v.toFixed(3));
+  const c_platR     = linkRange('#c_platR');
+
+  const chkContours = $('#chkContours');
+  const chkGuides = $('#chkGuides');
+
+  $('#btnPlay').addEventListener('click', ()=>{ running = !running; $('#btnPlay').textContent = running?'⏸ 停止':'▶ 開始'; loop(); });
+  $('#btnStep').addEventListener('click', ()=>{ if(!running){ step(); draw(); }});
+  $('#btnReset').addEventListener('click', ()=>reset());
+  $('#btnSave').addEventListener('click', ()=>{ const a=document.createElement('a'); a.download='coastal_terrace_v1.png'; a.href=cv.toDataURL('image/png'); a.click(); });
+
+  let X=220, z=[], seaLevel=0;
+  function initCoast(){
+    X = getGridN()|0; z = new Array(X).fill(0);
+    const slope = c_initSlope();
+    const cliff = 0.2*X;
+    for(let i=0;i<X;i++){
+      const d = i; z[i] = 60 + Math.max(0,(cliff - d))*0.4 - slope*d*100; 
+    }
+    seaLevel = 0;
+  }
+
+  function reset(){ t = 0; initCoast(); running=false; $('#btnPlay').textContent='▶ 開始'; draw(); updateTimeLabel(); }
+  function updateTimeLabel(){ $('#timeLabel').textContent = t.toFixed(1); }
+
+  function seaLevelAt(time){ return c_slAmp()*Math.sin(2*Math.PI*time/Math.max(1e-3,c_slPer())); }
+  function shorelineIndex(){ let s = X-2; for(let i=0;i<X-1;i++){ if(z[i]>=seaLevel && z[i+1]<seaLevel){ s=i; break; } } return Math.max(2, Math.min(X-3, s)); }
+  function coastStep(dt){
+    seaLevel = seaLevelAt(t);
+    const s = shorelineIndex(); const R = c_platR()|0; const K = c_waveK();
+    for(let r= -R; r<=R; r++){
+      const i = s + r; if(i<=1||i>=X-2) continue;
+      const target = seaLevel - 1.0 - Math.max(0, r)*0.08;
+      if(z[i] > target){ z[i] = z[i]*(1-K) + target*K; }
+    }
+    const D = c_diff(); const znew = z.slice();
+    for(let i=1;i<X-1;i++){ znew[i] = z[i] + D*(z[i-1]-2*z[i]+z[i+1]); }
+    z = znew;
+    const U = c_uplift()/1000; for(let i=0;i<X;i++){ if(z[i]>seaLevel-50){ z[i] += U*dt; } }
+  }
+
+  function draw(){
+    const grad = ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#ecfeff'); grad.addColorStop(1,'#ffffff'); ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+    const originY = H*0.8; const seaY = originY - seaLevel*PX_PER_M;
+    ctx.fillStyle = '#bfdbfe'; ctx.fillRect(0, seaY, W, H-seaY);
+    if(chkContours.checked){ ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=1; for(let h=-200; h<=400; h+=20){ const y=originY - h*PX_PER_M; if(y>0&&y<H){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); } } }
+    ctx.beginPath(); for(let i=0;i<X;i++){ const x=(i/(X-1))*W; const y=originY - z[i]*PX_PER_M; if(i===0) ctx.moveTo(x,H); ctx.lineTo(x,y);} ctx.lineTo(W,H); ctx.closePath(); ctx.fillStyle='#e9f5db'; ctx.fill(); ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=1.2; ctx.stroke();
+    if(chkGuides.checked){ ctx.strokeStyle='rgba(37,99,235,0.9)'; ctx.setLineDash([6,4]); ctx.beginPath(); ctx.moveTo(0, seaY); ctx.lineTo(W, seaY); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillStyle='#0f172a'; ctx.font='14px ui-sans-serif'; ctx.fillText(`海面: ${seaLevel.toFixed(1)} m / 隆起: ${c_uplift().toFixed(1)} m/kyr`, 12, 22);
+  }
+
+  function step(){ const dt = 0.5 * getTimeScale(); coastStep(dt); t += dt; updateTimeLabel(); }
+  function loop(){ cancelAnimationFrame(animId); if(!running) return; step(); draw(); animId = requestAnimationFrame(loop); }
+
+  reset();
+})();
+</script>
+</body>
+</html>
