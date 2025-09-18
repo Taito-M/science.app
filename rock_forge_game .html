@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rock Forge v2｜岩石生成ゲーム × マスコット鉱物カード</title>
+<style>
+  :root{
+    --bg:#0a1022; --panel:#0f1830; --ink:#eaf1ff; --muted:#a3b4d2; --line:rgba(255,255,255,.12);
+    --accent:#71e4ff; --accent2:#baf7c6; --hot:#ff7a6e; --cool:#6ecbff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; background:#0a1022; color:var(--ink);
+       background-image: radial-gradient(1200px 900px at 10% -10%, #193058, #0a1022 55%);}
+  header{position:sticky; top:0; z-index:10; backdrop-filter: blur(8px);
+         background: linear-gradient(180deg, rgba(10,18,35,.9), rgba(10,18,35,.6)); border-bottom:1px solid var(--line)}
+  .wrap{max-width:1200px; margin:0 auto; padding:14px 18px}
+  h1{margin:0; font-size:clamp(22px,2.6vw,32px); letter-spacing:.02em; display:flex; gap:.6rem; align-items:center}
+  h1 .badge{font-size:.8rem; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#062023; border-radius:999px; padding:.2rem .6rem}
+  .grid{display:grid; grid-template-columns: 1fr; gap:12px; margin:12px 0}
+  section.panel{background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:12px}
+  .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+  .chip{font-size:.8rem; color:#04131b; background:linear-gradient(135deg,#8fe4fc,#b8f8c4); padding:.2rem .6rem; border-radius:999px}
+  input[type="checkbox"]{accent-color:#39cbff}
+  input[type="range"]{width:240px}
+  .minis{display:grid; grid-template-columns: repeat(3, 1fr); gap:10px}
+  @media(max-width:950px){ .minis{grid-template-columns: repeat(2,1fr)}}
+  @media(max-width:620px){ .minis{grid-template-columns: 1fr}}
+  .card{display:grid; grid-template-columns: 240px 1fr; gap:10px; background:linear-gradient(180deg,#101a36,#0b152a); border:2px solid #3a4a7a; border-radius:16px; padding:8px; position:relative}
+  @media(max-width:560px){ .card{grid-template-columns: 1fr} }
+  .frame{border-radius:12px; background:linear-gradient(180deg,#0e1630,#0b1326); border:2px solid #27365c; position:relative; overflow:hidden; box-shadow: inset 0 0 0 4px rgba(255,255,255,.03)}
+  canvas.mini{width:100%; height:240px; display:block}
+  .rar{position:absolute; left:6px; top:6px; font-size:.85rem; background:rgba(0,0,0,.35); padding:.2rem .5rem; border-radius:999px; border:1px solid rgba(255,255,255,.15)}
+  .habitTag{position:absolute; left:6px; bottom:30px; font-size:.8rem; color:#04131b; background:linear-gradient(135deg,#9be2ff,#bff7ca); padding:.2rem .5rem; border-radius:999px; border:1px solid rgba(0,0,0,.12)}
+  .scale{position:absolute; right:6px; bottom:6px; color:#dfe8ff; font-size:.8rem; text-shadow:0 1px 2px rgba(0,0,0,.6)}
+  .meta{display:flex; flex-direction:column; gap:6px}
+  .jp{font-size:1.1rem; font-weight:900; letter-spacing:.02em; display:flex; gap:8px; align-items:center; justify-content:space-between}
+  .en{color:var(--muted); font-size:.95rem}
+  .formula{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#0f1a32; border:1px solid var(--line);
+           padding:.3rem .5rem; border-radius:8px; width:fit-content; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .stars{font-size:0.95rem}
+  .actions{display:flex; gap:8px; flex-wrap:wrap}
+  .btn{background:linear-gradient(135deg,#2c6fff,#18b6ff); color:#06151a; border:none; border-radius:12px; padding:.5rem .8rem; font-weight:800; cursor:pointer}
+  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--ink)}
+  .forge{display:grid; grid-template-columns: 1fr 1fr; gap:12px}
+  .drop{min-height:190px; background:#0e1732; border:2px dashed rgba(255,255,255,.2); border-radius:14px; padding:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start}
+  .miniChip{background:#0f1a3a; border:1px solid var(--line); border-radius:10px; padding:4px 6px; display:flex; align-items:center; gap:6px}
+  .miniDot{width:10px; height:10px; border-radius:50%}
+  .solidify{display:flex; gap:8px; flex-wrap:wrap}
+  .styleOpt{padding:.4rem .7rem; border-radius:999px; border:1px solid var(--line); cursor:pointer}
+  .styleOpt.active{background:linear-gradient(135deg,#1a2f66,#174c61); border-color:rgba(255,255,255,.25)}
+  .result{display:grid; grid-template-columns: 1fr 1fr; gap:12px}
+  @media(max-width:900px){ .result{grid-template-columns: 1fr} }
+  .portrait{background:#0e1732; border:1px solid var(--line); border-radius:14px; padding:8px}
+  canvas.out{width:100%; height:300px; display:block}
+  .dex{background:#0e1732; border:1px solid var(--line); border-radius:14px; padding:8px; min-height:300px}
+  .dexItem{display:flex; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px dashed rgba(255,255,255,.08)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Rock Forge <span class="badge">v2｜マスコット鉱物カード対応</span></h1>
+    <div class="row" style="margin-top:6px">
+      <span class="chip">① マグマ成分 → ② 鉱石カード生成（ドラッグして合成） → ③ 固まり方 → ④ 岩石誕生！</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel">
+    <h2 style="margin:6px 0 8px">① マグマの成分と条件</h2>
+    <div class="row">
+      <label><input type="checkbox" class="el" value="Mg" checked> Mg</label>
+      <label><input type="checkbox" class="el" value="Fe" checked> Fe</label>
+      <label><input type="checkbox" class="el" value="Ca" checked> Ca</label>
+      <label><input type="checkbox" class="el" value="Na" checked> Na</label>
+      <label><input type="checkbox" class="el" value="K" checked> K</label>
+      <label><input type="checkbox" class="el" value="Al" checked> Al</label>
+      <label><input type="checkbox" class="el" value="Si" checked> Si</label>
+      <label><input type="checkbox" class="el" value="H2O"> H₂O</label>
+      <div class="row" style="margin-left:auto">
+        温度 <span id="tval" style="color:#ffd584; font-weight:800; margin:0 6px">1100℃</span>
+        <input id="temp" type="range" min="650" max="1200" value="1100">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="gen">② 鉱石カードを生成</button>
+      <span class="muted">（要素と温度で生成候補が変わります）</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin:6px 0 8px">② 鉱石カード（ドラッグで合成へ）</h2>
+    <div id="mineralZone" class="minis"></div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin:6px 0 8px">③ 合成＆固まり方</h2>
+    <div class="forge">
+      <div>
+        <div class="drop" id="drop">ここにカードをドラッグ（最大3枚）</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="resetDrop">クリア</button>
+          <button class="btn" id="brew">合成する</button>
+        </div>
+      </div>
+      <div>
+        <div class="solidify" id="styles">
+          <div class="styleOpt active" data-style="plutonic">深成（ゆっくり冷える）</div>
+          <div class="styleOpt" data-style="volcanic">火山（すばやく冷える）</div>
+          <div class="styleOpt" data-style="porphyritic">斑状（2段冷却）</div>
+          <div class="styleOpt" data-style="glassy">急冷（ガラス質）</div>
+          <div class="styleOpt" data-style="vesicular">発泡（ガス多）</div>
+        </div>
+        <div style="margin-top:8px; color:var(--muted); font-size:.95rem">※ 冷え方で岩石名が変わります</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin:6px 0 8px">④ 岩石の誕生</h2>
+    <div class="result">
+      <div class="portrait">
+        <canvas id="out" class="out"></canvas>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="savePNG">PNGとして保存</button>
+          <button class="btn ghost" id="saveDex">図鑑に登録</button>
+        </div>
+      </div>
+      <div class="dex">
+        <div style="font-weight:800; margin-bottom:6px">マイ岩石図鑑（ローカル保存）</div>
+        <div id="dexList"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ===== Mineral definitions (chibi v4 style data) ===== */
+const MINERALS = [
+  {id:'olivine', jp:'橄欖石', en:'Olivine', formula:'(Mg,Fe)₂SiO₄', rarity:3, group:'mafic', color:'#7ed36a', habit:'granular', habitJP:'粒状', cleavage:[], size:'macro', score:-2},
+  {id:'opx', jp:'斜方輝石', en:'Orthopyroxene', formula:'(Mg,Fe)SiO₃', rarity:3, group:'mafic', color:'#4aa37a', habit:'prismatic-short', habitJP:'短柱状', cleavage:[90], size:'macro', score:-1},
+  {id:'cpx', jp:'単斜輝石', en:'Clinopyroxene', formula:'(Ca,Mg,Fe)SiO₃', rarity:3, group:'mafic', color:'#3c8a68', habit:'prismatic-short', habitJP:'短柱状', cleavage:[90], size:'macro', score:-1},
+  {id:'amph', jp:'角閃石', en:'Amphibole', formula:'(Ca,Na)₂₋₃(Mg,Fe,Al)₅(Si,Al)₈O₂₂(OH)₂', rarity:3, group:'intermediate', color:'#2e6b74', habit:'prismatic-long', habitJP:'長柱状', cleavage:[60,120], size:'macro', score:0},
+  {id:'biotite', jp:'黒雲母', en:'Biotite', formula:'K(Mg,Fe)₃AlSi₃O₁₀(F,OH)₂', rarity:3, group:'mica', color:'#3a3a3a', habit:'platy', habitJP:'板状', cleavage:['one'], size:'macro', score:0.3},
+  {id:'muscovite', jp:'白雲母', en:'Muscovite', formula:'KAl₂(AlSi₃O₁₀)(OH)₂', rarity:3, group:'mica', color:'#e8e7cc', habit:'platy', habitJP:'板状', cleavage:['one'], size:'macro', score:0.5},
+  {id:'kfs', jp:'カリ長石', en:'K-feldspar', formula:'KAlSi₃O₈', rarity:2, group:'feldspar', color:'#f2b5b0', habit:'blocky', habitJP:'ブロック状', cleavage:[90], size:'macro', score:1.2},
+  {id:'albite', jp:'曹長石', en:'Albite', formula:'NaAlSi₃O₈', rarity:2, group:'feldspar', color:'#d6e4f0', habit:'blocky', habitJP:'板〜ブロック', cleavage:[90], size:'macro', score:0.8},
+  {id:'anorthite', jp:'灰長石', en:'Anorthite', formula:'CaAl₂Si₂O₈', rarity:2, group:'feldspar', color:'#c7d4e2', habit:'blocky', habitJP:'板〜ブロック', cleavage:[90], size:'macro', score:-0.5},
+  {id:'quartz', jp:'石英', en:'Quartz', formula:'SiO₂', rarity:2, group:'silica', color:'#f1f6fb', habit:'hex-prism', habitJP:'六角柱', cleavage:[], size:'macro', score:2},
+  {id:'magnetite', jp:'磁鉄鉱', en:'Magnetite', formula:'Fe₃O₄', rarity:3, group:'oxide', color:'#2a2a2a', habit:'octa-cube', habitJP:'立方体', cleavage:[], size:'micro', score:-0.5}
+];
+
+/* ===== UI Refs ===== */
+const EL = {
+  zone: document.getElementById('mineralZone'),
+  temp: document.getElementById('temp'),
+  tval: document.getElementById('tval'),
+  gen: document.getElementById('gen'),
+  drop: document.getElementById('drop'),
+  resetDrop: document.getElementById('resetDrop'),
+  brew: document.getElementById('brew'),
+  styles: document.getElementById('styles'),
+  out: document.getElementById('out'),
+  savePNG: document.getElementById('savePNG'),
+  saveDex: document.getElementById('saveDex'),
+  dexList: document.getElementById('dexList'),
+  els: [...document.querySelectorAll('.el')]
+};
+
+/* ===== Helpers ===== */
+function stars(n){ return '★'.repeat(n) + '☆'.repeat(5-n); }
+function getSelectedElements(){ return new Set( EL.els.filter(e=>e.checked).map(e=>e.value) ); }
+
+/* ===== Mineral Generation Logic (elements + temp) ===== */
+function generateMinerals(){
+  const t = +EL.temp.value;
+  const elems = getSelectedElements();
+  const out = [];
+  function maybe(id, weight){
+    const m = MINERALS.find(x=>x.id===id); if(!m) return;
+    for(let i=0;i<weight;i++) out.push(m);
+  }
+  // baseline by temperature (Bowen-ish)
+  if(t>=1050){ maybe('olivine',2); maybe('cpx',2); maybe('anorthite',2); maybe('magnetite',1); }
+  if(t>=950 && t<1050){ maybe('opx',2); maybe('cpx',2); maybe('anorthite',1); maybe('albite',1); }
+  if(t>=850 && t<950){ maybe('amph',2); maybe('biotite',1); maybe('albite',2); maybe('kfs',1); }
+  if(t<850){ maybe('muscovite',2); maybe('kfs',2); maybe('quartz',2); maybe('albite',1); }
+
+  // element tweaks
+  if(elems.has('K')){ maybe('kfs',2); }
+  if(elems.has('Na')){ maybe('albite',2); }
+  if(elems.has('Ca')){ maybe('anorthite',2); }
+  if(elems.has('Mg')||elems.has('Fe')){ maybe('olivine',1); maybe('cpx',1); maybe('opx',1); }
+  if(elems.has('Si')){ maybe('quartz',2); }
+  if(elems.has('Al')){ maybe('biotite',1); maybe('muscovite',1); }
+  if(elems.has('H2O')){ maybe('amph',2); maybe('biotite',1); }
+
+  // de-duplicate to unique set but keep main coverage
+  const uniq = {}; out.forEach(m=> uniq[m.id]=m);
+  return Object.values(uniq);
+}
+
+/* ===== Render Mineral Cards (draggable) ===== */
+function renderMineralCards(minerals){
+  EL.zone.innerHTML = '';
+  minerals.forEach(m=> EL.zone.appendChild(makeCard(m)));
+}
+
+function makeCard(m){
+  const card = document.createElement('div'); card.className='card'; card.draggable=true; card.dataset.id=m.id;
+
+  const frame = document.createElement('div'); frame.className='frame';
+  const can = document.createElement('canvas'); can.className='mini';
+  frame.appendChild(can);
+  const rar = document.createElement('div'); rar.className='rar'; rar.textContent='Rarity '+m.rarity;
+  const habitTag = document.createElement('div'); habitTag.className='habitTag'; habitTag.textContent=m.habitJP;
+  const scale = document.createElement('div'); scale.className='scale'; scale.textContent=(m.size==='micro'?'1 mm':'1 cm');
+  frame.appendChild(rar); frame.appendChild(habitTag); frame.appendChild(scale);
+
+  const meta = document.createElement('div'); meta.className='meta';
+  meta.innerHTML = `
+    <div class="jp">${m.jp} <span class="chip">${m.group}</span></div>
+    <div class="en">${m.en}</div>
+    <div class="formula">${m.formula}</div>
+    <div class="stars">レア度：${stars(m.rarity)}</div>
+    <div class="actions">
+      <button class="btn ghost add">合成へ</button>
+    </div>
+  `;
+
+  card.appendChild(frame); card.appendChild(meta);
+
+  // draw mascot
+  drawChibi(can, m);
+
+  // drag behavior
+  card.addEventListener('dragstart', (e)=>{
+    e.dataTransfer.setData('text/plain', m.id);
+  });
+  meta.querySelector('.add').addEventListener('click', ()=> addToDrop(m.id));
+
+  return card;
+}
+
+/* ===== Drop area ===== */
+const dropSelected = [];
+function addToDrop(id){
+  if(dropSelected.length>=3) return alert('合成は最大3枚までです');
+  if(dropSelected.includes(id)) return alert('同じカードは1枚までにしてみよう');
+  dropSelected.push(id);
+  renderDrop();
+}
+function renderDrop(){
+  EL.drop.innerHTML='';
+  dropSelected.forEach(id=>{
+    const m = MINERALS.find(x=>x.id===id);
+    const chip = document.createElement('div'); chip.className='miniChip';
+    const dot = document.createElement('div'); dot.className='miniDot'; dot.style.background=m.color;
+    const name = document.createElement('div'); name.textContent = m.jp;
+    const del = document.createElement('button'); del.textContent='×'; del.className='btn ghost'; del.style.padding='2px 6px';
+    del.addEventListener('click', ()=>{ const i=dropSelected.indexOf(id); dropSelected.splice(i,1); renderDrop(); });
+    chip.appendChild(dot); chip.appendChild(name); chip.appendChild(del);
+    EL.drop.appendChild(chip);
+  });
+}
+EL.drop.addEventListener('dragover', (e)=> e.preventDefault());
+EL.drop.addEventListener('drop', (e)=>{
+  e.preventDefault();
+  const id = e.dataTransfer.getData('text/plain');
+  addToDrop(id);
+});
+EL.resetDrop.addEventListener('click', ()=>{ dropSelected.length=0; renderDrop(); });
+
+/* ===== Solidification style ===== */
+let styleSel = 'plutonic';
+EL.styles.addEventListener('click', (e)=>{
+  const opt = e.target.closest('.styleOpt'); if(!opt) return;
+  [...EL.styles.querySelectorAll('.styleOpt')].forEach(x=>x.classList.remove('active'));
+  opt.classList.add('active'); styleSel = opt.dataset.style;
+});
+
+/* ===== Brewing rock ===== */
+EL.brew.addEventListener('click', ()=>{
+  if(dropSelected.length===0) return alert('まず合成する鉱石カードを選んでください');
+  const minerals = dropSelected.map(id=> MINERALS.find(x=>x.id===id));
+  const compScore = minerals.reduce((s,m)=> s+m.score, 0);
+  let comp; if(compScore>=1) comp='felsic'; else if(compScore<=-1) comp='mafic'; else comp='intermediate';
+
+  const output = classifyRock(comp, styleSel);
+  drawRockPortrait(EL.out, minerals, output);
+  EL.out.dataset.meta = JSON.stringify({minerals: dropSelected.slice(), style: styleSel, rock: output});
+});
+
+function classifyRock(comp, style){
+  const map = {
+    plutonic: { mafic:'斑れい岩 (Gabbro)', intermediate:'閃緑岩 (Diorite)', felsic:'花こう岩 (Granite)' },
+    volcanic: { mafic:'玄武岩 (Basalt)', intermediate:'安山岩 (Andesite)', felsic:'流紋岩 (Rhyolite)' },
+    porphyritic: { mafic:'斑状玄武岩', intermediate:'斑状安山岩', felsic:'斑状流紋岩' },
+    glassy: { mafic:'ガラス質玄武岩', intermediate:'ガラス質安山岩', felsic:'黒曜石 (Obsidian)' },
+    vesicular: { mafic:'スコリア (Scoria)', intermediate:'多孔質安山岩', felsic:'軽石 (Pumice)' }
+  };
+  return map[style][comp];
+}
+
+/* ===== Output portrait & save ===== */
+function drawRockPortrait(canvas, minerals, rockName){
+  const dpr = window.devicePixelRatio||1; const w=820, h=300; canvas.width=w*dpr; canvas.height=h*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  // bg
+  const bg = ctx.createLinearGradient(0,0,0,h);
+  bg.addColorStop(0,'#14224a'); bg.addColorStop(1,'#0c1736');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
+
+  // place mineral mascots layered
+  const slots = [
+    {x:150,y:160, s:0.9}, {x:280,y:140, s:0.8}, {x:410,y:160, s:0.9}, {x:540,y:140, s:0.8}
+  ];
+  minerals.forEach((m,i)=>{
+    const can = document.createElement('canvas'); can.width=240; can.height=240;
+    const g = can.getContext('2d'); drawMascotMorph(g, 240, 240, m);
+    const s = slots[i]; ctx.drawImage(can, s.x-120*s.s, s.y-120*s.s, 240*s.s, 240*s.s);
+  });
+
+  // title
+  ctx.fillStyle='#eaf1ff'; ctx.font='900 26px system-ui'; ctx.fillText('岩石：'+rockName, 20, 36);
+  ctx.font='16px system-ui'; ctx.fillStyle='#a9b9d5';
+  ctx.fillText('鉱物：'+minerals.map(m=>m.jp).join('＋'), 20, 62);
+  ctx.fillText('固まり方：'+
+    ({plutonic:'深成', volcanic:'火山', porphyritic:'斑状', glassy:'急冷', vesicular:'発泡'})[styleSel], 20, 84);
+
+  // frame
+  ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=3; ctx.strokeRect(10,10,w-20,h-20);
+}
+
+EL.savePNG.addEventListener('click', ()=>{
+  const a = document.createElement('a');
+  a.download = 'rock_forge_result.png'; a.href = EL.out.toDataURL('image/png'); a.click();
+});
+
+EL.saveDex.addEventListener('click', ()=>{
+  const meta = EL.out.dataset.meta ? JSON.parse(EL.out.dataset.meta) : null;
+  if(!meta){ return alert('まず合成して岩石を作ってください'); }
+  const list = JSON.parse(localStorage.getItem('rockdex')||'[]');
+  list.push({ts: Date.now(), meta}); localStorage.setItem('rockdex', JSON.stringify(list));
+  renderDex();
+});
+
+function renderDex(){
+  const list = JSON.parse(localStorage.getItem('rockdex')||'[]').slice().reverse();
+  EL.dexList.innerHTML='';
+  list.forEach(item=>{
+    const row = document.createElement('div'); row.className='dexItem';
+    const thumb = document.createElement('canvas'); thumb.width=220; thumb.height=90;
+    const ctx = thumb.getContext('2d');
+    // quick thumb
+    const g = ctx; g.fillStyle='#112149'; g.fillRect(0,0,220,90);
+    g.fillStyle='#dfe8ff'; g.font='bold 12px system-ui'; g.fillText(new Date(item.ts).toLocaleString(), 6, 16);
+    g.font='13px system-ui'; g.fillText(item.meta.rock, 6, 34);
+    g.fillStyle='#a6b7d5'; g.fillText(item.meta.minerals.map(id=>MINERALS.find(m=>m.id===id).jp).join('＋'), 6, 52);
+    g.fillText(({plutonic:'深成', volcanic:'火山', porphyritic:'斑状', glassy:'急冷', vesicular:'発泡'})[item.meta.style], 6, 70);
+    row.appendChild(thumb);
+    const rm = document.createElement('button'); rm.textContent='削除'; rm.className='btn ghost';
+    rm.addEventListener('click', ()=>{
+      const all = JSON.parse(localStorage.getItem('rockdex')||'[]');
+      const idx = all.findIndex(x=>x.ts===item.ts);
+      if(idx>=0){ all.splice(idx,1); localStorage.setItem('rockdex', JSON.stringify(all)); renderDex(); }
+    });
+    row.appendChild(rm);
+    EL.dexList.appendChild(row);
+  });
+}
+
+/* ===== Chibi drawing functions (from v4) ===== */
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function shade(hex, k){
+  const c = hex.replace('#','');
+  const r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16);
+  const rr=Math.max(0,Math.min(255,Math.round(r*k)));
+  const gg=Math.max(0,Math.min(255,Math.round(g*k)));
+  const bb=Math.max(0,Math.min(255,Math.round(b*k)));
+  return '#'+rr.toString(16).padStart(2,'0')+gg.toString(16).padStart(2,'0')+bb.toString(16).padStart(2,'0');
+}
+
+function backdrop(ctx,w,h){
+  const bg = ctx.createLinearGradient(0,0,0,h);
+  bg.addColorStop(0, '#1a2b59'); bg.addColorStop(1, '#0e1a38');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,w,h);
+  for(let i=0;i<18;i++){
+    const x=rnd(10,w-10), y=rnd(10,h-20);
+    ctx.fillStyle = 'rgba(255,255,255,'+rnd(0.15,0.4)+')';
+    ctx.beginPath(); ctx.arc(x,y, rnd(1,2.2), 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.ellipse(w/2, h-12, 72, 10, 0, 0, Math.PI*2); ctx.fill();
+}
+function drawCleavageLines(ctx, w, h, angles){
+  const cx=w/2, cy=h/2;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth=3; ctx.setLineDash([8,6]);
+  angles.forEach(deg=>{
+    const rad = deg * Math.PI/180; const len = Math.max(w,h); const dx=Math.cos(rad)*len, dy=Math.sin(rad)*len;
+    ctx.beginPath(); ctx.moveTo(cx-dx, cy-dy); ctx.lineTo(cx+dx, cy+dy); ctx.stroke();
+  });
+  ctx.restore();
+}
+function drawStriations(ctx, x, y, w, h, spacing=8, angle=-20*Math.PI/180){
+  ctx.save(); ctx.translate(x+w/2, y+h/2); ctx.rotate(angle);
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth=2;
+  for(let t=-w; t<w; t+=spacing){ ctx.beginPath(); ctx.moveTo(t, -h); ctx.lineTo(t, h); ctx.stroke(); }
+  ctx.restore();
+}
+function drawFace(ctx, cx, cy, scale=1){
+  const eyeDX = 22 * scale, eyeR = 7*scale;
+  ctx.fillStyle = '#0b0f1e'; ctx.beginPath(); ctx.arc(cx-eyeDX, cy, eyeR, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+eyeDX, cy, eyeR, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(cx-eyeDX-2, cy-2, 2.3*scale, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+eyeDX-2, cy-2, 2.3*scale, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#0b0f1e'; ctx.lineWidth = 5*scale;
+  ctx.beginPath(); ctx.arc(cx, cy+10*scale, 10*scale, 0, Math.PI, false); ctx.stroke();
+  ctx.globalAlpha=.25; ctx.fillStyle='#ff8cab';
+  ctx.beginPath(); ctx.ellipse(cx-eyeDX-8*scale, cy+6*scale, 10*scale, 4*scale, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+eyeDX+8*scale, cy+6*scale, 10*scale, 4*scale, 0, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha=1;
+}
+function drawGranularCluster(ctx, w, h, color, sizeFactor=1){
+  for(let i=0;i<6;i++){
+    const r = rnd(10*sizeFactor, 18*sizeFactor);
+    const x = rnd(30, w-30), y = rnd(60, h-30);
+    ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha=.18; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(x-5,y-6,r*0.6,r*0.3,-0.8,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+  }
+  const r = 28*sizeFactor, cx=w/2, cy=h/2+6;
+  ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.globalAlpha=.18; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(cx-8,cy-10,r*0.7,r*0.35,-0.8,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+  drawFace(ctx, cx, cy-2, sizeFactor);
+}
+function drawPrismatic(ctx, w, h, color, longness='short', cleavageAngles=[]){
+  const cx=w/2, cy=h/2; const L = longness==='long' ? 120: 86; const W = longness==='long' ? 34 : 44;
+  ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.moveTo(cx-W, cy-L/2); ctx.lineTo(cx+W, cy-L/2); ctx.lineTo(cx+W, cy+L/2); ctx.lineTo(cx-W, cy+L/2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = shade(color, 0.9);
+  ctx.beginPath(); ctx.moveTo(cx-W, cy-L/2); ctx.lineTo(cx, cy-L/2-16); ctx.lineTo(cx+W, cy-L/2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-W, cy+L/2); ctx.lineTo(cx, cy+L/2+16); ctx.lineTo(cx+W, cy+L/2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  drawFace(ctx, cx, cy-4, 1);
+  if(cleavageAngles && cleavageAngles.length){ drawCleavageLines(ctx, w, h, cleavageAngles); }
+}
+function drawPlaty(ctx, w, h, color){
+  const layers = 5; let anchorX=w/2, anchorY=70+2*24;
+  for(let i=0;i<layers;i++){
+    const ww = 150 - i*10, hh = 16; const x = w/2 - ww/2 + i*2, y = 70 + i*24;
+    if(i===2){ anchorX = x+ww/2; anchorY = y+hh/2; }
+    ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.roundRect(x,y,ww,hh,6); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha=.12; ctx.fillStyle='#fff'; ctx.roundRect(x+8,y+4,ww*0.4,6,4); ctx.fill(); ctx.globalAlpha=1;
+  }
+  drawFace(ctx, anchorX, anchorY-2, 1);
+  drawStriations(ctx, w/2-90, 70, 180, 110, 10, 0);
+}
+function drawBlocky(ctx, w, h, color, striation=false){
+  const ww=140, hh=100; const x=w/2-ww/2, y=h/2-hh/2+8;
+  ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.roundRect(x,y,ww,hh,10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = shade(color,0.9);
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+ww,y); ctx.lineTo(x+ww-18,y-18); ctx.lineTo(x-18,y-18); ctx.closePath(); ctx.fill(); ctx.stroke();
+  if(striation){ drawStriations(ctx, x+10, y+10, ww-20, hh-20, 8, -15*Math.PI/180); }
+  drawFace(ctx, x+ww/2, y+hh/2-6, 1);
+}
+function drawHexPrism(ctx, w, h, color, termination=true){
+  const cx=w/2, cy=h/2-4; const R=50, L=120;
+  function hexPoints(y){ const pts=[]; for(let k=0;k<6;k++){ const ang = Math.PI/6 + k*Math.PI/3; pts.push([cx + R*Math.cos(ang), y + (R*0.58)*Math.sin(ang)]); } return pts; }
+  const top = hexPoints(cy-L/2), bottom = hexPoints(cy+L/2);
+  for(let i=0;i<6;i++){
+    const a=top[i], b=top[(i+1)%6], c_=bottom[(i+1)%6], d=bottom[i];
+    const shadeK = 0.9 - 0.08*i; const faceColor = shade(color, Math.max(0.6, Math.min(1, shadeK)));
+    const col = faceColor; const ctxLine = '#0b0f1e';
+    ctx.fillStyle = col; ctx.strokeStyle=ctxLine; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.lineTo(...c_); ctx.lineTo(...d); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if(termination){
+    ctx.fillStyle=shade(color,0.95); ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.moveTo(cx, cy-L/2-26); ctx.lineTo(...top[2]); ctx.lineTo(...top[3]); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy+L/2+26); ctx.lineTo(...bottom[2]); ctx.lineTo(...bottom[3]); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  drawFace(ctx, cx, cy-6, 1);
+}
+function drawOctaCube(ctx, w, h, color){
+  const size=100, x=w/2-size/2, y=h/2-size/2;
+  ctx.fillStyle = color; ctx.strokeStyle='#0b0f1e'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.rect(x,y,size,size); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = shade(color, 0.85);
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+size,y); ctx.lineTo(x+size-20,y-20); ctx.lineTo(x-20,y-20); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = shade(color, 0.7);
+  ctx.beginPath(); ctx.moveTo(x+size,y); ctx.lineTo(x+size,y+size); ctx.lineTo(x+size-20,y+size-20); ctx.lineTo(x+size-20,y-20); ctx.closePath(); ctx.fill(); ctx.stroke();
+  drawFace(ctx, x+size/2, y+size/2-6, 1);
+}
+
+function drawMascotMorph(ctx, w, h, m){
+  backdrop(ctx,w,h);
+  switch(m.habit){
+    case 'granular': drawGranularCluster(ctx,w,h,m.color, m.size==='micro'?0.8:1); break;
+    case 'prismatic-long': drawPrismatic(ctx,w,h,m.color,'long', m.cleavage.filter(c=>typeof c==='number')); break;
+    case 'prismatic-short': drawPrismatic(ctx,w,h,m.color,'short', m.cleavage.filter(c=>typeof c==='number')); break;
+    case 'platy': drawPlaty(ctx,w,h,m.color); break;
+    case 'blocky': drawBlocky(ctx,w,h,m.color, false); break;
+    case 'hex-prism': drawHexPrism(ctx,w,h,m.color, true); break;
+    case 'octa-cube': drawOctaCube(ctx,w,h,m.color); break;
+    default: drawGranularCluster(ctx,w,h,m.color); break;
+  }
+}
+
+/* ===== Utility: draw miniature card canvas ===== */
+function drawChibi(canvas, m){
+  const dpr = window.devicePixelRatio||1; const w=240, h=240; canvas.width=w*dpr; canvas.height=h*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  drawMascotMorph(ctx, w, h, m);
+}
+
+/* ===== Events ===== */
+EL.temp.addEventListener('input', ()=> EL.tval.textContent = EL.temp.value + '℃');
+EL.gen.addEventListener('click', ()=> renderMineralCards(generateMinerals()));
+EL.brew.addEventListener('click', ()=>{}); // logic bound earlier
+window.addEventListener('load', ()=>{ renderMineralCards(generateMinerals()); renderDex(); });
+</script>
+</body>
+</html>
