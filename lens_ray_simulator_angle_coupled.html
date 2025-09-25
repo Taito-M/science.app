@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>レンズ光線シミュレーター（斜入射＋f↔t 連動）</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --ink: #0f172a;
+    --sub: #475569;
+    --accent: #2563eb;
+    --axis: #94a3b8;
+    --lens: #10b981;
+    --ray: #ef4444;
+    --ray2: #8b5cf6;
+  }
+  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "YuGothic", sans-serif; color: var(--ink); background: var(--bg); }
+  .wrap { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px; height: 100%; box-sizing: border-box; }
+  .panel { background: var(--panel); border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; box-shadow: 0 10px 20px rgba(15,23,42,.05); display: flex; flex-direction: column; gap: 12px; }
+  .panel h1 { font-size: 20px; margin: 0 0 8px; }
+  .panel h2 { font-size: 14px; margin: 12px 0 4px; color: var(--sub); }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+  label { font-size: 14px; color: var(--sub); }
+  select, input[type="range"], button { width: 100%; }
+  input[type="range"] { accent-color: var(--accent); }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { background: var(--ink); color: white; border: 0; padding: 10px 12px; border-radius: 12px; cursor: pointer; font-weight: 600; }
+  button.secondary { background: #334155; }
+  button.ghost { background: transparent; border: 1px dashed #cbd5e1; color: var(--ink); }
+  .hint { font-size: 12px; color: var(--sub); line-height: 1.6; }
+  .canvasWrap { background: var(--panel); border: 1px solid #e2e8f0; border-radius: 16px; padding: 8px; position: relative; }
+  canvas { width: 100%; height: 100%; display: block; border-radius: 12px; background: #ffffff; }
+  .pill { position: absolute; top: 12px; left: 12px; background: rgba(37,99,235,.08); color: #1e40af; border: 1px solid rgba(37,99,235,.3); padding: 6px 10px; border-radius: 999px; font-size: 12px; }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#e2e8f0; padding:0 6px; border-radius:6px; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>レンズ光線シミュレーター</h1>
+      <div class="row">
+        <label for="lensType">レンズの種類</label>
+        <select id="lensType" aria-label="レンズの種類">
+          <option value="convex">凸レンズ（収束）</option>
+          <option value="concave">凹レンズ（発散）</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="focal">焦点距離 f（px）<span id="focalVal"></span></label>
+        <input id="focal" type="range" min="40" max="280" step="5" value="160" />
+      </div>
+      <div class="row">
+        <label for="thick">レンズの厚み（見た目）<span id="thickVal"></span></label>
+        <input id="thick" type="range" min="6" max="40" step="2" value="16" />
+      </div>
+      <div class="row">
+        <label for="bundle">平行光の本数</label>
+        <input id="bundle" type="range" min="1" max="11" step="1" value="5" />
+      </div>
+
+      <h2>角度つき入射</h2>
+      <div class="row">
+        <label for="angle">角度（°）水平方向基準 <span id="angleVal"></span></label>
+        <input id="angle" type="range" min="-80" max="80" step="1" value="0" />
+      </div>
+      <div class="btns">
+        <button id="angledClick">角度クリック追加（左でクリック）</button>
+        <button id="addAngleBundle">角度付き 平行光を追加</button>
+      </div>
+
+      <h2>光線の追加</h2>
+      <div class="btns">
+        <button id="addParallel">水平の平行光を追加</button>
+        <button id="addPoint">点光源（クリックで位置）</button>
+      </div>
+      <div class="btns">
+        <button class="secondary" id="undo">1つ戻す</button>
+        <button class="ghost" id="clear">全消去</button>
+      </div>
+
+      <h2>操作のコツ</h2>
+      <div class="hint">
+        ・キャンバス左側をクリック → その高さに平行光を1本追加。<br>
+        ・<span class="kbd">角度クリック追加</span> をオンにして左側をクリック → スライダー角度で入射。<br>
+        ・<span class="kbd">Shift</span> を押しながらドラッグ → 始点→終点の向きで1本追加（簡易ベクトル指定）。<br>
+        ・点光源モードでは、クリック点から扇状に複数本を発射。<br>
+        ・薄肉レンズ近軸近似（行列光学）： θ<sub>out</sub> = θ<sub>in</sub> − y/f（凹は f&lt;0）。
+      </div>
+    </div>
+
+    <div class="canvasWrap">
+      <div class="pill">クリックで追加 / Shift+ドラッグで角度指定</div>
+      <canvas id="cv"></canvas>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (s)=>document.querySelector(s);
+  const cv = $('#cv');
+  const ctx = cv.getContext('2d');
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+
+  const state = {
+    lensType: 'convex',
+    f: 160,
+    lensX: 480,
+    lensThick: 16,
+    rays: [], // {x0,y0,theta}
+    mode: 'idle', // 'idle' | 'pointSource' | 'angledClick'
+    angleDeg: 0,
+    dragging: false,
+    dragStart: null,
+  };
+
+  // UI elements
+  const lensTypeSel = $('#lensType');
+  const focal = $('#focal');
+  const focalVal = $('#focalVal');
+  const thick = $('#thick');
+  const thickVal = $('#thickVal');
+  const bundle = $('#bundle');
+  const addParallel = $('#addParallel');
+  const addPoint = $('#addPoint');
+  const undo = $('#undo');
+  const clear = $('#clear');
+  const angle = $('#angle');
+  const angleVal = $('#angleVal');
+  const angledClickBtn = $('#angledClick');
+  const addAngleBundleBtn = $('#addAngleBundle');
+
+  // --- Slider coupling: f ↔ t ---
+  const fMin = parseFloat(focal.min), fMax = parseFloat(focal.max);
+  const tMin = parseFloat(thick.min), tMax = parseFloat(thick.max);
+  const tStep = parseFloat(thick.step), fStep = parseFloat(focal.step);
+  let syncing = false;
+
+  function clamp(x,min,max){ return Math.min(max, Math.max(min, x)); }
+  function quantize(val, step, min, max){
+    const q = Math.round((val - min)/step)*step + min;
+    return clamp(q, min, max);
+  }
+  // 短焦点ほど厚く：線形の反比例マッピング
+  function fToT(f){
+    return tMin + (tMax - tMin) * (fMax - f) / (fMax - fMin);
+  }
+  function tToF(t){
+    return fMax - (fMax - fMin) * (t - tMin) / (tMax - tMin);
+  }
+
+  function resize(){
+    const wrap = cv.parentElement.getBoundingClientRect();
+    const W = Math.max(640, Math.floor(wrap.width || window.innerWidth - 380));
+    const H = Math.max(360, Math.floor((window.innerHeight || 720) - 64));
+    cv.width = Math.floor(W * DPR);
+    cv.height = Math.floor(H * DPR);
+    cv.style.width = W + 'px';
+    cv.style.height = H + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    state.lensX = Math.floor(W*0.52);
+    draw();
+  }
+
+  window.addEventListener('resize', resize);
+
+  function drawAxis(W,H){
+    ctx.save();
+    ctx.strokeStyle = getCSS('--axis');
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6,6]);
+    ctx.beginPath();
+    ctx.moveTo(0, H/2);
+    ctx.lineTo(W, H/2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  function drawLens(W,H){
+    const x = state.lensX;
+    const t = state.lensThick;
+    const y0 = 40, y1 = H-40;
+    ctx.save();
+    ctx.fillStyle = hexWithAlpha(getCSS('--lens'), 0.15);
+    ctx.strokeStyle = getCSS('--lens');
+    ctx.lineWidth = 2;
+
+    const r = Math.min(120, H/2 - 60);
+    ctx.beginPath();
+    if(state.lensType==='convex'){
+      ctx.moveTo(x - t/2, y0);
+      ctx.bezierCurveTo(x - t/2 - r, H/2 - r, x - t/2 - r, H/2 + r, x - t/2, y1);
+      ctx.lineTo(x + t/2, y1);
+      ctx.bezierCurveTo(x + t/2 + r, H/2 + r, x + t/2 + r, H/2 - r, x + t/2, y0);
+      ctx.closePath();
+    } else {
+      ctx.moveTo(x - t/2, y0);
+      ctx.bezierCurveTo(x - t/2 + r, H/2 - r, x - t/2 + r, H/2 + r, x - t/2, y1);
+      ctx.lineTo(x + t/2, y1);
+      ctx.bezierCurveTo(x + t/2 - r, H/2 + r, x + t/2 - r, H/2 - r, x + t/2, y0);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.setLineDash([4,4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const f = (state.lensType==='convex')? state.f : -state.f;
+    const yA = H/2;
+    ctx.fillStyle = getCSS('--ink');
+    ctx.strokeStyle = getCSS('--ink');
+    ctx.lineWidth = 1;
+
+    function tick(tx,label){
+      ctx.beginPath();
+      ctx.moveTo(tx, yA-6);
+      ctx.lineTo(tx, yA+6);
+      ctx.stroke();
+      ctx.fillText(label, tx-6, yA-10);
+    }
+    ctx.save();
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, sans-serif';
+    tick(x + f, 'F');
+    tick(x - f, 'F');
+    tick(x + 2*f, '2F');
+    tick(x - 2*f, '2F');
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function traceAndDrawRays(W,H){
+    const xL = state.lensX;
+    const f = (state.lensType==='convex')? state.f : -state.f;
+
+    for(let i=0;i<state.rays.length;i++){
+      const ray = state.rays[i];
+      const color = i%2===0? getCSS('--ray') : getCSS('--ray2');
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+
+      const x0 = ray.x0, y0 = ray.y0, th0 = ray.theta;
+      const y_at_lens = y0 + th0*(xL - x0);
+
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(xL, y_at_lens);
+      ctx.stroke();
+
+      const th1 = th0 - (y_at_lens - H/2)/f;
+
+      const xR = W - 8;
+      const yR = y_at_lens + th1*(xR - xL);
+
+      ctx.beginPath();
+      ctx.moveTo(xL, y_at_lens);
+      ctx.lineTo(xR, yR);
+      ctx.stroke();
+
+      if(f<0){
+        ctx.save();
+        ctx.setLineDash([6,6]);
+        const xL2 = 8;
+        const yL2 = y_at_lens - th1*(xL - xL2);
+        ctx.beginPath();
+        ctx.moveTo(xL, y_at_lens);
+        ctx.lineTo(xL2, yL2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  function draw(){
+    const cssW = cv.clientWidth || Math.round(cv.width / DPR);
+    const cssH = cv.clientHeight || Math.round(cv.height / DPR);
+    const W = cssW; const H = cssH;
+    ctx.clearRect(0,0,W,H);
+    drawGrid(W,H);
+    drawAxis(W,H);
+    drawLens(W,H);
+    traceAndDrawRays(W,H);
+
+    if(state.dragging && state.dragStart){
+      const ds = state.dragStart; const cp = state.dragCurr;
+      ctx.save();
+      ctx.strokeStyle = '#64748b';
+      ctx.setLineDash([4,4]);
+      ctx.beginPath();
+      ctx.moveTo(ds.x, ds.y);
+      ctx.lineTo(cp.x, cp.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawGrid(W,H){
+    ctx.save();
+    ctx.strokeStyle = '#f1f5f9';
+    ctx.lineWidth = 1;
+    for(let x=0;x<W;x+=40){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for(let y=0;y<H;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function getCSS(varName){ return getComputedStyle(document.documentElement).getPropertyValue(varName).trim(); }
+  function hexWithAlpha(hex, a){
+    if(!hex || hex[0] !== '#') return 'rgba(0,0,0,'+a+')';
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // === Interactions ===
+  cv.addEventListener('mousedown', (e)=>{
+    if(!e.shiftKey) return;
+    const rect = cv.getBoundingClientRect();
+    state.dragging = true;
+    state.dragStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    state.dragCurr  = { x: state.dragStart.x, y: state.dragStart.y };
+    draw();
+  });
+  cv.addEventListener('mousemove', (e)=>{
+    if(!state.dragging) return;
+    const rect = cv.getBoundingClientRect();
+    state.dragCurr = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    draw();
+  });
+  cv.addEventListener('mouseup', (e)=>{
+    if(!state.dragging) return;
+    const rect = cv.getBoundingClientRect();
+    const sx = state.dragStart.x, sy = state.dragStart.y;
+    const ex = e.clientX - rect.left, ey = e.clientY - rect.top;
+    const dx = ex - sx, dy = ey - sy;
+    if(Math.hypot(dx,dy) > 4){
+      const th = dy / Math.max(1e-6, dx);
+      state.rays.push({ x0: sx, y0: sy, theta: th });
+    }
+    state.dragging = false; state.dragStart=null; state.dragCurr=null;
+    draw();
+  });
+
+  cv.addEventListener('click', (e)=>{
+    if(state.dragging) return;
+    const rect = cv.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if(state.mode==='pointSource'){
+      addPointSource(x,y);
+      state.mode='idle';
+      addPoint.classList.remove('active');
+    } else if(state.mode==='angledClick'){
+      const th = Math.tan(state.angleDeg * Math.PI/180);
+      const x0 = Math.min(x, state.lensX - 20);
+      state.rays.push({ x0, y0: y, theta: th });
+    } else {
+      addParallelRay(y);
+    }
+    draw();
+  });
+
+  function addParallelRay(y){ const x0 = 16; const theta = 0; state.rays.push({x0, y0:y, theta}); }
+  function addBundle(){
+    const n = parseInt(bundle.value,10);
+    const H = Math.floor(cv.clientHeight || cv.height / DPR);
+    const mid = H/2; const spread = Math.min(160, H*0.35); const start = mid - spread/2;
+    for(let i=0;i<n;i++){ const y = start + (i*(spread/(Math.max(1,n-1)))); addParallelRay(y); }
+  }
+  function addAngleBundleRays(){
+    const n = parseInt(bundle.value,10);
+    const H = Math.floor(cv.clientHeight || cv.height / DPR);
+    const mid = H/2; const spread = Math.min(160, H*0.35); const start = mid - spread/2;
+    const th = Math.tan(state.angleDeg * Math.PI/180);
+    const x0 = 16;
+    for(let i=0;i<n;i++){ const y = start + (i*(spread/(Math.max(1,n-1)))); state.rays.push({ x0, y0: y, theta: th }); }
+  }
+  function addPointSource(x,y){
+    const count = 9; const maxDeg = 10;
+    for(let i=0;i<count;i++){ const t = (i/(count-1))*2 - 1; const deg = t*maxDeg; const th = deg*Math.PI/180; state.rays.push({x0:x, y0:y, theta: th}); }
+  }
+
+  // UI wiring
+  lensTypeSel.addEventListener('change', ()=>{ state.lensType = lensTypeSel.value; draw(); });
+  focal.addEventListener('input', ()=>{
+    if(syncing) return; syncing = true;
+    state.f = parseFloat(focal.value);
+    focalVal.textContent = `：${state.f}px`;
+    const t = quantize(fToT(state.f), tStep, tMin, tMax);
+    thick.value = t; state.lensThick = parseFloat(thick.value);
+    if(thickVal) thickVal.textContent = `：${state.lensThick}`;
+    syncing = false;
+    draw();
+  });
+  thick.addEventListener('input', ()=>{
+    if(syncing) return; syncing = true;
+    state.lensThick = parseFloat(thick.value);
+    if(thickVal) thickVal.textContent = `：${state.lensThick}`;
+    const f = quantize(tToF(state.lensThick), fStep, fMin, fMax);
+    focal.value = f; state.f = parseFloat(focal.value);
+    focalVal.textContent = `：${state.f}px`;
+    syncing = false;
+    draw();
+  });
+  addParallel.addEventListener('click', ()=>{ addBundle(); draw(); });
+  addPoint.addEventListener('click', ()=>{ state.mode = (state.mode==='pointSource') ? 'idle' : 'pointSource'; addPoint.classList.toggle('active'); });
+  undo.addEventListener('click', ()=>{ state.rays.pop(); draw(); });
+  clear.addEventListener('click', ()=>{ state.rays.length = 0; draw(); });
+  angle.addEventListener('input', ()=>{ state.angleDeg = parseFloat(angle.value); angleVal.textContent = `：${state.angleDeg.toFixed(0)}°`; });
+  angledClickBtn.addEventListener('click', ()=>{ state.mode = (state.mode==='angledClick')? 'idle':'angledClick'; angledClickBtn.classList.toggle('active'); });
+  addAngleBundleBtn.addEventListener('click', ()=>{ addAngleBundleRays(); draw(); });
+
+  // init
+  focalVal.textContent = `：${state.f}px`;
+  const initT = quantize(fToT(state.f), tStep, tMin, tMax);
+  thick.value = initT; state.lensThick = parseFloat(thick.value);
+  if(thickVal) thickVal.textContent = `：${state.lensThick}`;
+  angleVal.textContent = `：0°`;
+  resize();
+})();
+</script>
+</body>
+</html>
