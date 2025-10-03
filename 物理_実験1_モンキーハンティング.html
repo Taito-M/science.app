@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2球の空中衝突シミュレーター（150m×150m・反発あり）</title>
+<style>
+  :root{--bg:#f6f7fb;--panel:#ffffff;--ink:#0f172a;--muted:#475569;--accent:#2563eb}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  header{padding:10px 14px;background:#e5e7eb;border-bottom:1px solid #cbd5e1}
+  header h1{margin:0;font-size:18px}
+  #stage{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:12px}
+  .card{background:var(--panel);border:1px solid #e2e8f0;border-radius:12px}
+  #left{padding:12px}
+  #right{padding:12px}
+  fieldset{border:1px solid #e2e8f0;border-radius:10px;margin:0 0 12px;padding:10px}
+  legend{color:#64748b;font-size:12px;padding:0 6px}
+  label{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:6px 0}
+  input[type="range"]{width:200px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  button{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:8px 12px;cursor:pointer}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .note{font-size:12px;color:#334155}
+  /* Square, big canvas. World is fixed to 150m×150m view */
+  #cv{display:block;width:900px;height:900px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;max-width:100%}
+  #statusTop,#statusBottom{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-color:#e5e7eb}
+  #statusTop{border-bottom:1px solid #e5e7eb}
+  #statusBottom{border-top:1px solid #e5e7eb}
+  .chip{background:#eef2ff;border:1px solid #c7d2fe;border-radius:999px;padding:6px 10px;font-size:12px}
+  .chip .k{color:#334155;margin-right:6px}
+  .chip.good{background:#ecfdf5;border-color:#bbf7d0}
+  .chip.warn{background:#fef2f2;border-color:#fecaca}
+  .legend{display:flex;gap:14px;align-items:center}
+  .legend span{display:inline-flex;gap:6px;align-items:center}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .g{background:#16a34a}.b{background:#0284c7}.r{background:#ef4444}
+</style>
+</head>
+<body>
+<header class="card"><h1>2球の空中衝突シミュレーター（150m×150m・反発あり）</h1></header>
+<div id="stage">
+  <aside id="left" class="card">
+    <fieldset>
+      <legend>初期条件（範囲は0〜150m内）</legend>
+      <label>発射速度 v<sub>0</sub>（m/s）<input id="v0" type="range" min="1" max="80" step="0.5" value="30"></label><div class="note mono" id="v0v">30.0 m/s</div>
+      <label>目標までの水平距離（m）<input id="dist" type="range" min="2" max="150" step="1" value="40"></label><div class="note mono" id="distv">40 m</div>
+      <label>Bの高さ（m）<input id="hB" type="range" min="1" max="150" step="0.5" value="20"></label><div class="note mono" id="hBv">20.0 m</div>
+      <label>重力 g（m/s²）<input id="grav" type="range" min="1" max="20" step="0.1" value="9.8"></label><div class="note mono" id="gravv">9.8 m/s²</div>
+      <label><input id="autoAim" type="checkbox" checked> AはBの初期位置を狙う（θ自動）</label>
+      <label>発射角 θ（°, 自由モード時）<input id="angle" type="range" min="0" max="85" step="1" value="30"></label><div class="note mono" id="anglev">30°</div>
+      <label><input id="drag" type="checkbox"> 空気抵抗（簡易：二乗抵抗）</label>
+      <label>ボール半径（m）<input id="radius" type="range" min="0.05" max="0.6" step="0.01" value="0.15"></label><div class="note mono" id="radiusv">0.15 m</div>
+      <label>Δt（s）<input id="dt" type="range" min="0.002" max="0.05" step="0.001" value="0.01"></label><div class="note mono" id="dtv">0.010 s</div>
+    </fieldset>
+    <fieldset>
+      <legend>操作</legend>
+      <div class="row">
+        <button id="start" class="primary">▶ 開始/再開</button>
+        <button id="pause">⏸ 一時停止</button>
+        <button id="reset">⟲ リセット</button>
+        <button id="step">⏯ 1ステップ</button>
+      </div>
+      <div class="note">表示範囲は常に <b>150m × 150m</b>。原点は左下。θ自動＋抵抗オフ → 必ず衝突。衝突時は弾性反発（e=1）。</div>
+    </fieldset>
+  </aside>
+
+  <section id="right" class="card">
+    <div id="statusTop">
+      <div class="chip"><span class="k">t</span><span class="mono" id="tVal">0.000 s</span></div>
+      <div class="chip"><span class="k">|A−B|</span><span class="mono" id="dVal">— m</span></div>
+      <div class="chip"><span class="k">θ</span><span class="mono" id="thetaVal">— °</span></div>
+      <div class="chip"><span class="k">理論t（抵抗なし）</span><span class="mono" id="tHitTheory">—</span></div>
+      <div class="chip good" id="hitChip" style="display:none;">接触</div>
+    </div>
+    <div id="canvasHolder">
+      <canvas id="cv" width="900" height="900"></canvas>
+    </div>
+    <div id="statusBottom">
+      <div class="legend">
+        <span><span class="dot g"></span>A（発射球）</span>
+        <span><span class="dot b"></span>B（自由落下）</span>
+        <span><span class="dot r"></span>接触半径</span>
+      </div>
+      <div class="note mono" id="dbg" style="margin-left:auto;">ready</div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  // World extents
+  const WORLD_W = 150; // m
+  const WORLD_H = 150; // m
+  const MARGIN = 40;   // px margin around view
+
+  // Compute scale so that 0..150m fits inside canvas with margins
+  function computeScale(){
+    const drawableW = cv.width - MARGIN*2;
+    const drawableH = cv.height - MARGIN*2;
+    const sx = WORLD_W / drawableW; // m/px
+    const sy = WORLD_H / drawableH; // m/px
+    return Math.max(sx, sy); // ensure both fit
+  }
+  let SCALE = computeScale(); // m per px
+  const origin = {x: MARGIN, y: cv.height - MARGIN}; // left-bottom
+
+  // UI helpers
+  const E = id=>document.getElementById(id);
+  const upd = () => {
+    E('v0v').textContent = (+E('v0').value).toFixed(1)+' m/s';
+    E('distv').textContent = (+E('dist').value).toFixed(0)+' m';
+    E('hBv').textContent = (+E('hB').value).toFixed(1)+' m';
+    E('gravv').textContent = (+E('grav').value).toFixed(1)+' m/s²';
+    E('anglev').textContent = (+E('angle').value).toFixed(0)+'°';
+    E('radiusv').textContent = (+E('radius').value).toFixed(2)+' m';
+    E('dtv').textContent = (+E('dt').value).toFixed(3)+' s';
+    E('angle').disabled = E('autoAim').checked;
+    // clamp within world
+    if(+E('dist').value>WORLD_W) E('dist').value=WORLD_W;
+    if(+E('hB').value>WORLD_H) E('hB').value=WORLD_H;
+    reset();
+  };
+  ['v0','dist','hB','grav','angle','drag','radius','dt','autoAim'].forEach(id=>E(id).addEventListener('input',upd));
+
+  E('start').addEventListener('click',()=>{running=true; loop();});
+  E('pause').addEventListener('click',()=>{running=false;});
+  E('reset').addEventListener('click',reset);
+  E('step').addEventListener('click',()=>{running=false; step(); draw();});
+
+  // world state (m, s), y up positive
+  let st, running=false, raf=null;
+
+  function def(){
+    const A = {x:0,y:0,vx:0,vy:0,trail:[]};
+    const B = {x:+E('dist').value, y:+E('hB').value, vx:0, vy:0, trail:[]};
+    // velocity set
+    let ang;
+    if(E('autoAim').checked){
+      ang = Math.atan2(B.y, B.x);
+    }else{
+      ang = (+E('angle').value) * Math.PI/180;
+    }
+    const v0 = +E('v0').value;
+    A.vx = v0*Math.cos(ang); A.vy = v0*Math.sin(ang);
+    const theory = E('autoAim').checked ? (Math.hypot(B.x,B.y)/v0) : null;
+    E('tHitTheory').textContent = theory? theory.toFixed(3)+' s' : '—';
+    E('thetaVal').textContent = (ang*180/Math.PI).toFixed(1)+' °';
+    return {A,B,g:+E('grav').value, t:0, hit:false, sep:Infinity, k:E('drag').checked?0.05:0, radius:+E('radius').value};
+  }
+
+  function reset(){
+    st = def(); draw();
+    showChip('hitChip', false);
+    dbg('reset; scale(m/px)='+SCALE.toFixed(3));
+  }
+
+  // physics (with elastic collision on contact between A and B)
+  function step(){
+    const dt = +E('dt').value;
+    const {A,B} = st; const g=st.g; const k=st.k;
+
+    // Integrate (simple explicit Euler with drag^2)
+    function integrate(P){
+      const v = Math.hypot(P.vx,P.vy);
+      const ax = -k*P.vx*v;
+      const ay = -k*P.vy*v - g;
+      P.vx += ax*dt; P.vy += ay*dt;
+      P.x += P.vx*dt; P.y += P.vy*dt;
+    }
+    integrate(A); integrate(B);
+
+    // Collision between A and B (elastic, equal mass)
+    const dx = A.x - B.x, dy = A.y - B.y;
+    const dist = Math.hypot(dx, dy);
+    const r = st.radius*2; // sum of radii (same)
+    if(dist>0 && dist <= r){
+      // Normal vector from B to A
+      const nx = dx/dist, ny = dy/dist;
+      // Relative velocity
+      const rvx = A.vx - B.vx, rvy = A.vy - B.vy;
+      const vn = rvx*nx + rvy*ny; // normal component
+      if(vn < 0){
+        // Perfectly elastic (e=1), equal mass → reflect normal components
+        const j = -(1+1) * vn / 2; // = -vn
+        const jx = j*nx, jy = j*ny;
+        A.vx += jx; A.vy += jy;
+        B.vx -= jx; B.vy -= jy;
+      }
+      // Positional correction to resolve overlap
+      const overlap = r - dist;
+      const corr = (overlap/2) + 1e-6;
+      A.x += nx * corr; A.y += ny * corr;
+      B.x -= nx * corr; B.y -= ny * corr;
+
+      showChip('hitChip', true);
+      st.hit = true;
+    }
+
+    // Trails
+    if(st.t%(dt*3)<dt){
+      A.trail.push({x:A.x,y:A.y}); B.trail.push({x:B.x,y:B.y});
+      if(A.trail.length>500)A.trail.shift(); if(B.trail.length>500)B.trail.shift();
+    }
+
+    st.t += dt;
+    st.sep = Math.hypot(A.x - B.x, A.y - B.y);
+
+    // Floor (y<0) clamp — keep simple stop on ground
+    if(A.y < 0){A.y=0; if(A.vy<0) A.vy=0;}
+    if(B.y < 0){B.y=0; if(B.vy<0) B.vy=0;}
+    // Keep within world horizontally (0..150). Simple inelastic wall: stop at edges.
+    if(A.x < 0){A.x=0; if(A.vx<0) A.vx=0;}
+    if(B.x < 0){B.x=0; if(B.vx<0) B.vx=0;}
+    if(A.x > WORLD_W){A.x=WORLD_W; if(A.vx>0) A.vx=0;}
+    if(B.x > WORLD_W){B.x=WORLD_W; if(B.vx>0) B.vx=0;}
+    if(A.y > WORLD_H){A.y=WORLD_H; if(A.vy>0) A.vy=0;}
+    if(B.y > WORLD_H){B.y=WORLD_H; if(B.vy>0) B.vy=0;}
+  }
+
+  // drawing
+  function W2C(p){return {x:origin.x + p.x / SCALE, y:origin.y - p.y / SCALE};}
+
+  function draw(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    grid();
+
+    // Draw world frame
+    ctx.strokeStyle='#94a3b8'; ctx.lineWidth=2;
+    const bl = W2C({x:0,y:0}), tr = W2C({x:WORLD_W,y:WORLD_H});
+    ctx.strokeRect(bl.x, tr.y, (WORLD_W/SCALE), (WORLD_H/SCALE));
+
+    // initial markers
+    const A0 = W2C({x:0,y:0});
+    const B0 = W2C({x:+E('dist').value, y:+E('hB').value});
+    ctx.fillStyle='#475569'; ctx.beginPath(); ctx.arc(A0.x,A0.y,6,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#0ea5e9'; ctx.beginPath(); ctx.arc(B0.x,B0.y,6,0,Math.PI*2); ctx.fill();
+
+    // aim line
+    if(E('autoAim').checked){
+      ctx.setLineDash([6,6]); ctx.strokeStyle='#22c55e';
+      ctx.beginPath(); ctx.moveTo(A0.x,A0.y); ctx.lineTo(B0.x,B0.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // trails
+    drawTrail(st.A.trail,'#16a34a');
+    drawTrail(st.B.trail,'#0284c7');
+
+    // balls
+    const A = W2C(st.A), B = W2C(st.B);
+    const radPx = Math.max(3, (st.radius/SCALE)*2 );
+    ctx.fillStyle='#16a34a'; ctx.beginPath(); ctx.arc(A.x,A.y,radPx,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#0284c7'; ctx.beginPath(); ctx.arc(B.x,B.y,radPx,0,Math.PI*2); ctx.fill();
+
+    // collision radius hints
+    ctx.globalAlpha=0.2; ctx.strokeStyle='#ef4444';
+    ctx.beginPath(); ctx.arc(A.x,A.y,radPx,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(B.x,B.y,radPx,0,Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1;
+
+    // status
+    E('tVal').textContent = st.t.toFixed(3)+' s';
+    E('dVal').textContent = isFinite(st.sep)? st.sep.toFixed(3)+' m' : '—';
+  }
+
+  function drawTrail(tr,color){
+    if(tr.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
+    for(let i=0;i<tr.length;i++){ const c=W2C(tr[i]); if(i===0) ctx.moveTo(c.x,c.y); else ctx.lineTo(c.x,c.y); }
+    ctx.stroke();
+  }
+
+  function grid(){
+    // 1m minor, 5m major, labels every 10m
+    const px1 = 1/SCALE, px5 = px1*5, px10 = px1*10;
+    // minor
+    ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1; ctx.beginPath();
+    for(let x=0; x<=WORLD_W; x+=1){ const cx = origin.x + x/SCALE; ctx.moveTo(cx, origin.y - 0/SCALE); ctx.lineTo(cx, origin.y - WORLD_H/SCALE); }
+    for(let y=0; y<=WORLD_H; y+=1){ const cy = origin.y - y/SCALE; ctx.moveTo(origin.x, cy); ctx.lineTo(origin.x + WORLD_W/SCALE, cy); }
+    ctx.stroke();
+    // major
+    ctx.strokeStyle='#cbd5e1'; ctx.beginPath();
+    for(let x=0; x<=WORLD_W; x+=5){ const cx = origin.x + x/SCALE; ctx.moveTo(cx, origin.y - 0/SCALE); ctx.lineTo(cx, origin.y - WORLD_H/SCALE); }
+    for(let y=0; y<=WORLD_H; y+=5){ const cy = origin.y - y/SCALE; ctx.moveTo(origin.x, cy); ctx.lineTo(origin.x + WORLD_W/SCALE, cy); }
+    ctx.stroke();
+    // labels every 10m
+    ctx.fillStyle='#64748b'; ctx.font='11px system-ui';
+    for(let x=0; x<=WORLD_W; x+=10){ const cx = origin.x + x/SCALE; ctx.fillText(x+'m', cx+2, origin.y-4); }
+    for(let y=10; y<=WORLD_H; y+=10){ const cy = origin.y - y/SCALE; ctx.fillText(y+'m', origin.x+4, cy-2); }
+  }
+
+  function loop(){ if(!running){ draw(); return;} step(); draw(); raf=requestAnimationFrame(loop); }
+
+  function showChip(id, on){ E(id).style.display = on? 'inline-block':'none'; }
+  function dbg(msg){ E('dbg').textContent = msg; }
+
+  // init
+  SCALE = computeScale();
+  upd();
+  reset();
+  draw();
+})();
+</script>
+</body>
+</html>
