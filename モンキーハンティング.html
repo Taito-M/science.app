@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2球の空中衝突：反発係数＋質量調整（エフェクトなし）</title>
+<style>
+  body{margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;background:#f6f8fb;color:#0f172a}
+  header{padding:8px 12px;background:#e5eefc;border-bottom:1px solid #cdd8ee}
+  #ui{display:flex;gap:10px;flex-wrap:wrap;padding:8px 12px;background:#fff;border-bottom:1px solid #e5e7eb}
+  label{display:flex;align-items:center;gap:6px;font-size:14px}
+  input[type="range"]{width:140px}
+  button{padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer}
+  button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+  #wrap{display:flex;justify-content:center;padding:10px}
+  canvas{background:#ffffff;border:1px solid #cbd5e1;border-radius:10px}
+  .mono{font-family:ui-monospace, Menlo, Consolas, monospace}
+  #dbg{font-size:12px;color:#475569;padding:6px 12px;line-height:1.4}
+  .chip{padding:2px 6px;border-radius:999px;background:#eef2ff;border:1px solid #c7d2fe}
+</style>
+</head>
+<body>
+<header><b>2球の空中衝突</b>（反発係数＋質量調整／エフェクト無し）</header>
+<div id="ui">
+  <label>発射速度 v0 <span class="mono">(m/s)</span><input id="v0" type="range" min="5" max="60" value="25" step="1"><span id="v0v" class="mono">25</span></label>
+  <label>距離 <span class="mono">(m)</span><input id="dist" type="range" min="5" max="80" value="30" step="1"><span id="distv" class="mono">30</span></label>
+  <label>Bの高さ <span class="mono">(m)</span><input id="hB" type="range" min="2" max="40" value="12" step="1"><span id="hBv" class="mono">12</span></label>
+  <label>半径 r <span class="mono">(m)</span><input id="rad" type="range" min="0.08" max="0.6" value="0.2" step="0.01"><span id="radv" class="mono">0.20</span></label>
+  <label>反発係数 e <input id="e" type="range" min="0" max="1" value="0.8" step="0.05"><span id="ev" class="chip mono">0.80</span></label>
+  <label>質量 m<sub>A</sub> <span class="mono">(kg)</span><input id="mA" type="range" min="0.1" max="5" value="1" step="0.1"><span id="mAv" class="mono">1.0</span></label>
+  <label>質量 m<sub>B</sub> <span class="mono">(kg)</span><input id="mB" type="range" min="0.1" max="5" value="1" step="0.1"><span id="mBv" class="mono">1.0</span></label>
+  <label>g <span class="mono">(m/s²)</span><input id="g" type="range" min="1" max="20" value="9.8" step="0.1"><span id="gv" class="mono">9.8</span></label>
+  <label><input id="trail" type="checkbox" checked>軌跡</label>
+  <button id="start" class="primary">開始</button>
+  <button id="pause">一時停止</button>
+  <button id="reset">リセット</button>
+</div>
+<div id="dbg" class="mono"></div>
+<div id="wrap"><canvas id="cv" width="900" height="520"></canvas></div>
+
+<script>
+(function(){
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const ui = {
+    v0: g('v0'), dist: g('dist'), hB: g('hB'), g: g('g'),
+    rad: g('rad'), e: g('e'), trail: g('trail'), mA: g('mA'), mB: g('mB'),
+    v0v: g('v0v'), distv: g('distv'), hBv: g('hBv'), gv: g('gv'), ev: g('ev'), radv: g('radv'),
+    mAv: g('mAv'), mBv: g('mBv'),
+    start: g('start'), pause: g('pause'), reset: g('reset')
+  };
+  const dbg = document.getElementById('dbg');
+
+  // 固定スケール：1m = 10px
+  const S = 10; // px/m
+
+  let st, running=false, collideLock=false;
+  function state0(){
+    const A = {x:0, y:0, vx:0, vy:0, trail:[]};
+    const B = {x:+ui.dist.value, y:+ui.hB.value, vx:0, vy:0, trail:[]};
+    const th = Math.atan2(B.y, B.x); // 自動照準
+    const v0 = +ui.v0.value;
+    A.vx = v0 * Math.cos(th);
+    A.vy = v0 * Math.sin(th);
+    collideLock=false;
+    return {A,B,t:0, hit:false, sep:Infinity};
+  }
+
+  function reset(){ st = state0(); running=false; draw(); }
+  function g(id){return document.getElementById(id)}
+
+  // UI bindings
+  for (const k of ['v0','dist','hB','g','e','rad','mA','mB']){
+    ui[k].addEventListener('input', ()=>{
+      ui.v0v.textContent = ui.v0.value;
+      ui.distv.textContent = ui.dist.value;
+      ui.hBv.textContent = ui.hB.value;
+      ui.gv.textContent = ui.g.value;
+      ui.ev.textContent = Number(ui.e.value).toFixed(2);
+      ui.radv.textContent = Number(ui.rad.value).toFixed(2);
+      ui.mAv.textContent = Number(ui.mA.value).toFixed(1);
+      ui.mBv.textContent = Number(ui.mB.value).toFixed(1);
+      reset();
+    });
+  }
+  ui.reset.addEventListener('click', reset);
+  ui.start.addEventListener('click', ()=>{ running = true; loop(); });
+  ui.pause.addEventListener('click', ()=>{ running = false; });
+
+  reset();
+
+  function phys(dt){
+    const A=st.A, B=st.B;
+    const g = +ui.g.value, mA = +ui.mA.value, mB = +ui.mB.value;
+    // 重力
+    A.vy += -g*dt; A.x += A.vx*dt; A.y += A.vy*dt;
+    B.vy += -g*dt; B.x += B.vx*dt; B.y += B.vy*dt;
+
+    // 地面で止める（簡易）
+    if (A.y<0){A.y=0;A.vx=A.vy=0;}
+    if (B.y<0){B.y=0;B.vx=B.vy=0;}
+
+    // 衝突判定 & 反発（質量考慮）
+    const r = +ui.rad.value;
+    const dx=A.x-B.x, dy=A.y-B.y; 
+    const d = Math.hypot(dx,dy);
+    st.sep=d;
+    const minDist = 2*r;
+    if(d <= minDist && !collideLock){
+      // 法線ベクトル（B→A）
+      const n = (d>1e-6)? {x:dx/d, y:dy/d} : {x:1, y:0};
+
+      // 重なりを質量に比例して解消（逆質量で按分）
+      const invA = 1/mA, invB = 1/mB, invSum = invA + invB;
+      const overlap = (minDist - d);
+      A.x += (invA/invSum)*overlap*n.x; A.y += (invA/invSum)*overlap*n.y;
+      B.x -= (invB/invSum)*overlap*n.x; B.y -= (invB/invSum)*overlap*n.y;
+
+      // 反発インパルス
+      const e = Number(ui.e.value);
+      const vrel = {x:A.vx - B.vx, y:A.vy - B.vy};
+      const vn = vrel.x*n.x + vrel.y*n.y; // 法線相対速度
+      if(vn < 0){
+        const j = -(1+e)*vn / (invSum); // jスカラー
+        A.vx += ( j * n.x) * invA;
+        A.vy += ( j * n.y) * invA;
+        B.vx -= ( j * n.x) * invB;
+        B.vy -= ( j * n.y) * invB;
+      }
+
+      collideLock = true;
+      setTimeout(()=>{collideLock=false;}, 80);
+      st.hit = true;
+    }
+
+    // 軌跡
+    if(ui.trail.checked){
+      if(st.t % 0.03 < dt){ A.trail.push({x:A.x,y:A.y}); B.trail.push({x:B.x,y:B.y});
+        if(A.trail.length>300) A.trail.shift(); if(B.trail.length>300) B.trail.shift();
+      }
+    }else{ A.trail=[]; B.trail=[]; }
+
+    st.t += dt;
+  }
+
+  function toC(p){ return {x:40 + p.x*S, y: (cv.height - 40) - p.y*S}; }
+
+  function draw(){
+    // 背景
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.fillStyle = '#f8fafc'; ctx.fillRect(0,0,cv.width,cv.height);
+    // 地面
+    const groundY = cv.height - 40;
+    ctx.strokeStyle='#94a3b8'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0, groundY+0.5); ctx.lineTo(cv.width, groundY+0.5); ctx.stroke();
+
+    // 目標点（B初期）
+    const B0 = toC({x:+ui.dist.value, y:+ui.hB.value});
+    ctx.fillStyle='#0ea5e9'; ctx.beginPath(); ctx.arc(B0.x,B0.y,6,0,Math.PI*2); ctx.fill();
+    // A原点
+    const A0 = toC({x:0,y:0});
+    ctx.fillStyle='#475569'; ctx.beginPath(); ctx.arc(A0.x,A0.y,6,0,Math.PI*2); ctx.fill();
+
+    // 軌跡
+    drawTrail(st.A.trail, '#16a34a');
+    drawTrail(st.B.trail, '#0284c7');
+
+    // 球（半径反映）
+    const rc = +ui.rad.value * S;
+    const Ac = toC(st.A), Bc = toC(st.B);
+    ctx.fillStyle='#16a34a'; ctx.beginPath(); ctx.arc(Ac.x,Ac.y,Math.max(4,rc),0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#0284c7'; ctx.beginPath(); ctx.arc(Bc.x,Bc.y,Math.max(4,rc),0,Math.PI*2); ctx.fill();
+
+    // 読み取り
+    const eText = Number(ui.e.value).toFixed(2);
+    const rText = Number(ui.rad.value).toFixed(2);
+    const mAT = Number(ui.mA.value).toFixed(1);
+    const mBT = Number(ui.mB.value).toFixed(1);
+    dbg.innerHTML = [
+      `t=${st.t.toFixed(2)} s | sep=${st.sep.toFixed(3)} m`,
+      `e=${eText} | r=${rText} m | mA=${mAT} kg | mB=${mBT} kg`
+    ].join(" &nbsp; ");
+  }
+
+  function drawTrail(arr, color){
+    if(arr.length<2) return;
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
+    for(let i=0;i<arr.length;i++){
+      const c = toC(arr[i]);
+      if(i===0) ctx.moveTo(c.x,c.y); else ctx.lineTo(c.x,c.y);
+    }
+    ctx.stroke();
+  }
+
+  function loop(){
+    if(!running){ draw(); return; }
+    const dt = 0.01;
+    phys(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>
