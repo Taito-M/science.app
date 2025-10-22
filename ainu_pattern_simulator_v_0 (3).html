@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ainu Pattern Simulator – v0.3 基本柄＋シームレス</title>
+<style>
+  :root{
+    --bg:#0b0f14;         /* 地色（濃紺/黒イメージ） */
+    --ink:#f5f7fa;        /* 縁取り（白） */
+    --accent:#c33;        /* 赤アクセント */
+    --ink2:#dfe5ec;       /* 外縁（淡） */
+  }
+  html,body{height:100%;}
+  body{margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN","Noto Sans JP", "Yu Gothic UI", sans-serif; color:#111; background:#0a0d11; display:grid; grid-template-columns: 1fr 360px; height:100%;}
+  header{grid-column: 1 / span 2; background:#0a0d11; color:#e7ecf3; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1a212b;}
+  header .title{font-weight:700; letter-spacing:.2px}
+  #stageWrap{background:linear-gradient(180deg,#0b1118,#0c0f14); display:flex; align-items:center; justify-content:center;}
+  #stage{width:min(100%,calc(100vh - 120px)); height:min(90vh, calc(100vw - 380px)); aspect-ratio:1/1; background:var(--bg); border-left:1px solid #1a212b; display:grid; place-items:center;}
+  #svg{width:92%; height:92%; background:var(--bg); border-radius:16px; box-shadow: 0 20px 60px rgba(0,0,0,.35), inset 0 0 0 1px #111;}
+  aside{background:#eef2f7; border-left:1px solid #cfd6df; overflow:auto}
+  .panel{padding:14px 14px 6px 14px;}
+  .panel h2{font-size:14px; margin:12px 0 8px; color:#20242a}
+  .row{display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; margin:6px 0}
+  .row label{font-size:12px; color:#333}
+  input[type=range]{width: 170px}
+  select, input[type=color], input[type=number], button{border:1px solid #b8c1cc; border-radius:8px; padding:6px 8px; background:#fff; font-size:12px}
+  .group{padding:8px; background:#fff; border:1px solid #cfd6df; border-radius:10px; margin-bottom:10px}
+  .grid2{display:grid; grid-template-columns: 1fr 1fr; gap:8px}
+  .stack{display:flex; gap:8px; flex-wrap:wrap}
+  .note{font-size:11px; color:#5a6472; line-height:1.4}
+  .badge{display:inline-block; font-size:10px; padding:2px 6px; border-radius:999px; background:#111827; color:#fff}
+  .chip{display:inline-block; padding:4px 8px; font-size:11px; border-radius:999px; border:1px solid #ccd4de; background:#fff; cursor:pointer}
+  .chip.active{background:#111827;color:#fff; border-color:#111827}
+  .btn-primary{background:#111827; color:#fff; border-color:#111827}
+  .btn-ghost{background:#fff; color:#111;}
+</style>
+</head>
+<body>
+  <header>
+    <div class="title">Ainu Pattern Simulator <span class="badge">v0.3 基本柄＋シームレス</span></div>
+    <div class="stack">
+      <button id="preset1" class="chip active">標準（渦と核）</button>
+      <button id="preset2" class="chip">角 強め（棘多）</button>
+      <button id="preset3" class="chip">赤 アクセント</button>
+      <button id="preset4" class="chip">控えめ & 余白</button>
+    </div>
+    <div class="stack">
+      <button id="btnExport" class="btn-primary">SVGを書き出し</button>
+    </div>
+  </header>
+  <div id="stageWrap">
+    <div id="stage">
+      <svg id="svg" viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style><![CDATA[
+            .ink-outline { stroke: var(--ink2); stroke-width: 10; fill: none; }
+            .ink       { stroke: var(--ink);  stroke-width: 6;  fill: none; }
+            .ink-thick { stroke: var(--ink);  stroke-width: 14; fill: none; stroke-linecap: round; }
+            .accent    { stroke: var(--accent); stroke-width: 8; fill: none; }
+          ]]></style>
+          <metadata id="ethics">教育・非商用向けサンプル出力／基本柄（対称）＆シームレス・タイル。© Ainu Pattern Simulator v0.3</metadata>
+        </defs>
+        <rect x="0" y="0" width="1000" height="1000" fill="var(--bg)"/>
+        <!-- 中央ガイド（基本柄用） -->
+        <g id="guides" opacity="0.15">
+          <line x1="500" y1="40" x2="500" y2="960" stroke="#9fb3c8" stroke-dasharray="8 8"/>
+          <line x1="40" y1="500" x2="960" y2="500" stroke="#9fb3c8" stroke-dasharray="8 8"/>
+          <circle cx="500" cy="500" r="280" fill="none" stroke="#9fb3c8" stroke-dasharray="4 8"/>
+        </g>
+        <!-- タイル定義とプレビュー面 -->
+        <defs id="tileDefs"></defs>
+        <rect id="tilePreviewRect" x="0" y="0" width="1000" height="1000" fill="none"/>
+        <!-- レイヤー（基本柄用） -->
+        <g id="layer-outline"></g>
+        <g id="layer-main"></g>
+        <g id="layer-accent"></g>
+      </svg>
+    </div>
+  </div>
+  <aside>
+    <div class="panel">
+      <div class="group">
+        <h2>配色</h2>
+        <div class="grid2">
+          <div class="row"><label>地色</label><input type="color" id="colBg" value="#0b0f14"/></div>
+          <div class="row"><label>縁取り（白）</label><input type="color" id="colInk" value="#f5f7fa"/></div>
+          <div class="row"><label>外縁（淡）</label><input type="color" id="colInk2" value="#dfe5ec"/></div>
+          <div class="row"><label>赤アクセント</label><input type="color" id="colAcc" value="#cc3333"/></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2>生成モード</h2>
+        <div class="row"><label>モード</label>
+          <select id="mode">
+            <option value="motif">基本柄（対称）</option>
+            <option value="tile">シームレス・タイル</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="group" id="motifGroup">
+        <h2>対称と配置（基本柄）</h2>
+        <div class="row"><label>左右対称</label><input type="checkbox" id="mirrorX" checked/></div>
+        <div class="row"><label>上下対称</label><input type="checkbox" id="mirrorY" checked/></div>
+        <div class="row"><label>レイアウト</label>
+          <select id="layout">
+            <option value="radial">放射（輪配置）</option>
+            <option value="grid">格子（中心揃え）</option>
+          </select>
+        </div>
+        <div class="row"><label>半径スケール</label><input type="range" id="scaleR" min="0.5" max="1.4" step="0.05" value="1.0"/></div>
+        <div class="row"><label>空白率（%）</label><input type="range" id="whitespace" min="0" max="60" value="18"/></div>
+        <div class="row"><label>ガイド表示</label><input type="checkbox" id="showGuides" checked/></div>
+      </div>
+
+      <div class="group" id="tileGroup" style="display:none">
+        <h2>タイル設定（シームレス）</h2>
+        <div class="row"><label>タイル幅/高さ</label><input type="range" id="tileSize" min="160" max="480" step="10" value="320"/></div>
+        <div class="row"><label>プレビュー分割</label><input type="range" id="tilePreview" min="2" max="6" value="3"/></div>
+        <div class="row"><label>余白（縁から）</label><input type="range" id="tileMargin" min="0" max="80" value="24"/></div>
+        <div class="row"><label>線太さ（全体）</label><input type="range" id="strokeScale" min="0.6" max="1.6" step="0.05" value="1.0"/></div>
+      </div>
+
+      <div class="group">
+        <h2>モレウ（渦）</h2>
+        <div class="row"><label>本数</label><input type="range" id="moreuCount" min="0" max="36" value="16"/></div>
+        <div class="row"><label>半径</label><input type="range" id="moreuR" min="8" max="80" value="34"/></div>
+        <div class="row"><label>巻き数</label><input type="range" id="moreuTurns" min="0.5" max="2.5" value="1.2" step="0.1"/></div>
+        <div class="row"><label>線太さ</label><input type="range" id="moreuW" min="2" max="20" value="10"/></div>
+      </div>
+
+      <div class="group">
+        <h2>アイウシ（棘）</h2>
+        <div class="row"><label>本数</label><input type="range" id="ayusCount" min="0" max="36" value="16"/></div>
+        <div class="row"><label>長さ</label><input type="range" id="ayusLen" min="8" max="100" value="40"/></div>
+        <div class="row"><label>開き角</label><input type="range" id="ayusAng" min="10" max="100" value="36"/></div>
+        <div class="row"><label>丸み</label><input type="range" id="ayusRound" min="0" max="1" step="0.05" value="0.3"/></div>
+      </div>
+
+      <div class="group">
+        <h2>シㇰ（菱・核）</h2>
+        <div class="row"><label>個数</label><input type="range" id="sikCount" min="0" max="20" value="6"/></div>
+        <div class="row"><label>長径</label><input type="range" id="sikA" min="10" max="200" value="90"/></div>
+        <div class="row"><label>短径</label><input type="range" id="sikB" min="6" max="140" value="40"/></div>
+        <div class="row"><label>回転</label><input type="range" id="sikRot" min="0" max="90" value="45"/></div>
+      </div>
+
+      <div class="group">
+        <h2>操作</h2>
+        <div class="stack">
+          <button id="btnShuffle" class="btn-ghost">軽く再配置</button>
+          <button id="btnReset" class="btn-ghost">初期化</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="note">※ v0.3は中心対称の基本柄に加え、シームレス・タイルの生成プレビューを搭載。公開・商用は所管機関へ相談推奨。</div>
+      </div>
+    </div>
+  </aside>
+
+<script>
+(function(){
+  const $ = (s, r=document)=>r.querySelector(s);
+  const $$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
+  const svg = $('#svg');
+  const gOutline = $('#layer-outline');
+  const gMain = $('#layer-main');
+  const gAcc = $('#layer-accent');
+  const guides = $('#guides');
+  const defsTile = $('#tileDefs');
+  const tilePreviewRect = $('#tilePreviewRect');
+
+  const S = {
+    mode:'motif',
+    mirrorX:true, mirrorY:true,
+    layout:'radial', scaleR:1.0, whitespace:18, showGuides:true,
+    moreuCount:16, moreuR:34, moreuTurns:1.2, moreuW:10,
+    ayusCount:16, ayusLen:40, ayusAng:36, ayusRound:0.3,
+    sikCount:6, sikA:90, sikB:40, sikRot:45,
+    // tile
+    tileSize:320, tilePreview:3, tileMargin:24, strokeScale:1.0,
+    colors:{bg:'#0b0f14', ink:'#f5f7fa', ink2:'#dfe5ec', acc:'#cc3333'},
+    seed:Math.random()*1e6
+  };
+
+  // ====== UI Bindings ======
+  function bindRange(id, key, tr=(v)=>+v){ const el=$('#'+id); if(!el) return; el.addEventListener('input',()=>{ S[key]=tr(el.value); draw(); }); }
+  bindRange('scaleR','scaleR',parseFloat);
+  bindRange('whitespace','whitespace');
+  bindRange('moreuCount','moreuCount'); bindRange('moreuR','moreuR'); bindRange('moreuTurns','moreuTurns',parseFloat); bindRange('moreuW','moreuW');
+  bindRange('ayusCount','ayusCount'); bindRange('ayusLen','ayusLen'); bindRange('ayusAng','ayusAng'); bindRange('ayusRound','ayusRound',parseFloat);
+  bindRange('sikCount','sikCount'); bindRange('sikA','sikA'); bindRange('sikB','sikB'); bindRange('sikRot','sikRot');
+
+  $('#mirrorX')?.addEventListener('change', e=>{S.mirrorX=e.target.checked; draw();});
+  $('#mirrorY')?.addEventListener('change', e=>{S.mirrorY=e.target.checked; draw();});
+  $('#layout')?.addEventListener('change', e=>{S.layout=e.target.value; draw();});
+  $('#showGuides')?.addEventListener('change', e=>{S.showGuides=e.target.checked; guides.setAttribute('opacity', S.showGuides? '0.15':'0');});
+
+  // Mode & tile controls
+  $('#mode')?.addEventListener('change', e=>{ S.mode=e.target.value; $('#motifGroup').style.display = S.mode==='motif'?'block':'none'; $('#tileGroup').style.display = S.mode==='tile'?'block':'none'; guides.style.display = S.mode==='motif'? 'block':'none'; draw(); });
+  bindRange('tileSize','tileSize');
+  bindRange('tilePreview','tilePreview');
+  bindRange('tileMargin','tileMargin');
+  bindRange('strokeScale','strokeScale',parseFloat);
+
+  // Colors
+  const colMap = { colBg:'bg', colInk:'ink', colInk2:'ink2', colAcc:'acc' };
+  Object.entries(colMap).forEach(([id,key])=>{
+    $('#'+id).addEventListener('input', e=>{ S.colors[key]=e.target.value; applyColors(); draw(); });
+  });
+
+  // Presets
+  function applyPreset(i){
+    $$('#preset1,#preset2,#preset3,#preset4').forEach(b=>b.classList.remove('active'));
+    $('#preset'+i).classList.add('active');
+    if(i===1){ Object.assign(S,{moreuCount:18, moreuR:36, moreuTurns:1.3, moreuW:11, ayusCount:14, ayusLen:36, sikCount:6, sikA:100, sikB:40, whitespace:18}); }
+    else if(i===2){ Object.assign(S,{moreuCount:10, ayusCount:28, ayusLen:56, ayusAng:42, ayusRound:0.18, sikCount:4, whitespace:14}); }
+    else if(i===3){ Object.assign(S,{moreuCount:14, moreuW:9, sikCount:8, sikA:120, sikB:46, whitespace:22}); }
+    else { Object.assign(S,{moreuCount:8, ayusCount:10, ayusLen:28, sikCount:3, sikA:70, sikB:28, whitespace:28}); }
+    syncUI(); draw();
+  }
+  $('#preset1').onclick=()=>applyPreset(1);
+  $('#preset2').onclick=()=>applyPreset(2);
+  $('#preset3').onclick=()=>applyPreset(3);
+  $('#preset4').onclick=()=>applyPreset(4);
+
+  $('#btnShuffle').onclick=()=>{ S.seed=Math.random()*1e6; draw(); };
+  $('#btnReset').onclick=()=>{
+    const keepColors = {...S.colors};
+    Object.assign(S,{mode:S.mode, mirrorX:true, mirrorY:true, layout:'radial', scaleR:1.0, whitespace:18, showGuides:true, moreuCount:16, moreuR:34, moreuTurns:1.2, moreuW:10, ayusCount:16, ayusLen:40, ayusAng:36, ayusRound:0.3, sikCount:6, sikA:90, sikB:40, sikRot:45, tileSize:320, tilePreview:3, tileMargin:24, strokeScale:1.0, colors:keepColors});
+    syncUI(); draw();
+  };
+
+  $('#btnExport').onclick=()=>{
+    const clone = svg.cloneNode(true);
+    const style = clone.querySelector('style');
+    const css = style.textContent
+      .replaceAll('var(--ink2)', S.colors.ink2)
+      .replaceAll('var(--ink)', S.colors.ink)
+      .replaceAll('var(--accent)', S.colors.acc);
+    style.textContent = css;
+    clone.querySelector('rect').setAttribute('fill', S.colors.bg);
+    const meta = clone.querySelector('metadata#ethics');
+    if(meta){ meta.textContent += ` | Exported ${new Date().toISOString()}`; }
+    const ser = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([ser], {type:'image/svg+xml'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = S.mode==='tile' ? 'ainu_tile_v0_3.svg' : 'ainu_basic_motif_v0_3.svg'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2500);
+  };
+
+  function syncUI(){
+    const v = (id,val)=>{ const el=$('#'+id); if(!el) return; if(el.type==='range'||el.type==='number') el.value=val; else if(el.type==='checkbox') el.checked=!!val; else if(el.tagName==='SELECT') el.value=val; };
+    v('mode',S.mode);
+    v('mirrorX',S.mirrorX); v('mirrorY',S.mirrorY); v('layout',S.layout); v('scaleR',S.scaleR); v('whitespace',S.whitespace); v('showGuides',S.showGuides);
+    v('moreuCount',S.moreuCount); v('moreuR',S.moreuR); v('moreuTurns',S.moreuTurns); v('moreuW',S.moreuW);
+    v('ayusCount',S.ayusCount); v('ayusLen',S.ayusLen); v('ayusAng',S.ayusAng); v('ayusRound',S.ayusRound);
+    v('sikCount',S.sikCount); v('sikA',S.sikA); v('sikB',S.sikB); v('sikRot',S.sikRot);
+    v('tileSize',S.tileSize); v('tilePreview',S.tilePreview); v('tileMargin',S.tileMargin); v('strokeScale',S.strokeScale);
+    $('#motifGroup').style.display = S.mode==='motif'?'block':'none';
+    $('#tileGroup').style.display = S.mode==='tile'?'block':'none';
+    guides.style.display = S.mode==='motif'? 'block':'none';
+  }
+
+  function applyColors(){
+    document.documentElement.style.setProperty('--bg', S.colors.bg);
+    document.documentElement.style.setProperty('--ink', S.colors.ink);
+    document.documentElement.style.setProperty('--ink2', S.colors.ink2);
+    document.documentElement.style.setProperty('--accent', S.colors.acc);
+  }
+
+  // ===== Motif primitives =====
+  function path(cls,d,sw){ const p = document.createElementNS('http://www.w3.org/2000/svg','path'); p.setAttribute('class',cls); p.setAttribute('d',d); p.setAttribute('vector-effect','non-scaling-stroke'); if(sw) p.style.strokeWidth=sw*(S.mode==='tile'?S.strokeScale:1); return p; }
+  function group(){ return document.createElementNS('http://www.w3.org/2000/svg','g'); }
+
+  function spiralPath(r=30, turns=1.2, steps=70){
+    const pts=[]; const k = r/(turns*2*Math.PI);
+    for(let i=0;i<=steps;i++){ const th=(i/steps)*(turns*2*Math.PI); const rr=k*th; const x=rr*Math.cos(th), y=rr*Math.sin(th); pts.push(`${i?'L':'M'} ${x.toFixed(2)} ${y.toFixed(2)}`); }
+    return pts.join(' ');
+  }
+  function ayusPath(len=40, openDeg=36, round=0.3){
+    const a=(openDeg*Math.PI/180)/2; const dx=Math.cos(a)*len, dy=Math.sin(a)*len; const x1=-dx, y1=-dy, x2=dx, y2=-dy; const rx=6*round, top=-len*(0.6+0.2*round);
+    return `M 0 0 Q ${x1.toFixed(1)} ${y1.toFixed(1)} ${(-rx).toFixed(1)} ${top.toFixed(1)} M 0 0 Q ${x2.toFixed(1)} ${y2.toFixed(1)} ${(rx).toFixed(1)} ${top.toFixed(1)}`;
+  }
+  function sikPath(a=90,b=40, rot=45){ const rad=rot*Math.PI/180; const c=Math.cos(rad), s=Math.sin(rad); const pts=[[0,-a/2],[b/2,0],[0,a/2],[-b/2,0]].map(([x,y])=>`${(x*c-y*s).toFixed(1)} ${(x*s+y*c).toFixed(1)}`); return `M ${pts[0]} L ${pts[1]} ${pts[2]} ${pts[3]} Z`; }
+
+  // ===== Symmetry helpers (motif) =====
+  function placeSym(g, x, y, rot){
+    const base = g.cloneNode(true); base.setAttribute('transform',`translate(${x} ${y}) rotate(${rot})`); gMain.appendChild(base);
+    if(S.mirrorX){ const m = g.cloneNode(true); m.setAttribute('transform',`translate(${1000-x} ${y}) rotate(${180-rot}) scale(-1,1)`); gMain.appendChild(m); }
+    if(S.mirrorY){ const m2 = g.cloneNode(true); m2.setAttribute('transform',`translate(${x} ${1000-y}) rotate(${180-rot}) scale(1,-1)`); gMain.appendChild(m2); }
+    if(S.mirrorX && S.mirrorY){ const m3 = g.cloneNode(true); m3.setAttribute('transform',`translate(${1000-x} ${1000-y}) rotate(${rot}) scale(-1,-1)`); gMain.appendChild(m3); }
+  }
+
+  // ===== Layout generators (motif) =====
+  function rng(){ let t = Math.sin(S.seed++)*10000; return t-Math.floor(t); }
+  function hasAny(){ return (S.moreuCount|0) + (S.ayusCount|0) + (S.sikCount|0) > 0; }
+
+  function layoutRadial(){
+    const cx=500, cy=500; const scale=S.scaleR; const baseR=260*scale;
+
+    // SIK（中心核）
+    for(let i=0;i<S.sikCount;i++){
+      const g = group(); const d=sikPath(S.sikA, S.sikB, S.sikRot + (i%2?0:90));
+      g.appendChild(path('ink-outline',d)); g.appendChild(path('ink',d)); if(i%2===0) g.appendChild(path('accent',d));
+      const r = baseR*(0.15 + 0.08*i);
+      const th = (i*2*Math.PI/Math.max(1,S.sikCount))*0.5;
+      const x=cx + r*Math.cos(th), y=cy + r*Math.sin(th);
+      placeSym(g, x, y, th*180/Math.PI);
+    }
+
+    // MOREU（渦）外輪
+    for(let i=0;i<S.moreuCount;i++){
+      const g = group(); const d=spiralPath(S.moreuR, S.moreuTurns, 70); const p0=path('ink-outline',d, Math.max(2,S.moreuW+4)); const p1=path('ink',d,S.moreuW); g.appendChild(p0); g.appendChild(p1);
+      const rr = baseR*(0.6 + 0.25 + 0.2*rng());
+      const th = (i/S.moreuCount) * 2*Math.PI;
+      const x=cx + rr*Math.cos(th), y=cy + rr*Math.sin(th); const rot = th*180/Math.PI + 90;
+      placeSym(g, x, y, rot);
+    }
+
+    // AYUSI（棘）中輪
+    for(let i=0;i<S.ayusCount;i++){
+      const g = group(); const d=ayusPath(S.ayusLen, S.ayusAng, S.ayusRound); g.appendChild(path('ink-outline',d)); g.appendChild(path('ink',d));
+      const rr = baseR*(0.35 + 0.12*(i%3)) / (1+S.whitespace/100);
+      const th = (i/S.ayusCount)*2*Math.PI +  (i%2?0.05:-0.05);
+      const x=cx + rr*Math.cos(th), y=cy + rr*Math.sin(th); const rot = th*180/Math.PI - 90;
+      placeSym(g, x, y, rot);
+    }
+  }
+
+  function layoutGrid(){
+    const cx=500, cy=500; const scale=S.scaleR; const k = 120*scale; const cols=3, rows=3; const ox=cx-k, oy=cy-k;
+    // center SIK (only if count>0)
+    if(S.sikCount>0){
+      const g = group(); const d=sikPath(S.sikA, S.sikB, S.sikRot); g.appendChild(path('ink-outline',d)); g.appendChild(path('ink',d)); g.appendChild(path('accent',d)); placeSym(g, cx, cy, 0);
+    }
+    // grid of MOREU & AYUS alternating
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        if(r===1 && c===1) continue; // center already filled
+        const x = ox + c*k; const y = oy + r*k;
+        if((r+c)%2===0){
+          const g = group(); const d=spiralPath(S.moreuR, S.moreuTurns, 70); g.appendChild(path('ink-outline',d, Math.max(2,S.moreuW+4))); g.appendChild(path('ink',d,S.moreuW)); placeSym(g, x, y, (r-c)*10);
+        }else{
+          const g = group(); const d=ayusPath(S.ayusLen, S.ayusAng, S.ayusRound); g.appendChild(path('ink-outline',d)); g.appendChild(path('ink',d)); placeSym(g, x, y, (c-r)*10);
+        }
+      }
+    }
+  }
+
+  // ======= Seamless Tile =======
+  function drawSeamlessTile(){
+    const T = S.tileSize; const N = S.tilePreview; const M = S.tileMargin; const cx=T/2, cy=T/2;
+
+    // pattern setup
+    defsTile.innerHTML='';
+    const pat = document.createElementNS('http://www.w3.org/2000/svg','pattern');
+    pat.setAttribute('id','tile'); pat.setAttribute('patternUnits','userSpaceOnUse'); pat.setAttribute('width',T); pat.setAttribute('height',T);
+
+    // patternTransform: scale to show N tiles across 1000px canvas
+    const scale = (1000/N)/T; // tile displayed size = 1000/N
+    pat.setAttribute('patternTransform', `scale(${scale})`);
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+
+    // helper: wrap clones across edges to ensure seamless continuity
+    function addWrapped(el){
+      const shifts=[ [0,0],[T,0],[-T,0],[0,T],[0,-T],[T,T],[-T,T],[T,-T],[-T,-T] ];
+      for(const [dx,dy] of shifts){ const c = el.cloneNode(true); const tr = el.getAttribute('transform')||''; c.setAttribute('transform', `${tr} translate(${dx} ${dy})`); g.appendChild(c); }
+    }
+
+    // center SIK(s)
+    for(let i=0;i<S.sikCount;i++){
+      const grp = document.createElementNS('http://www.w3.org/2000/svg','g');
+      const d=sikPath(S.sikA*0.8, S.sikB*0.8, S.sikRot + (i%2?0:90));
+      grp.appendChild(path('ink-outline',d)); grp.appendChild(path('ink',d)); if(i%2===0) grp.appendChild(path('accent',d));
+      const r = (T/2 - M)*0.35 + i*6; const th = (i*0.8);
+      grp.setAttribute('transform',`translate(${(cx + r*Math.cos(th)).toFixed(1)} ${(cy + r*Math.sin(th)).toFixed(1)}) rotate(${(th*180/Math.PI).toFixed(1)})`);
+      addWrapped(grp);
+    }
+
+    // ring of MOREU
+    for(let i=0;i<S.moreuCount;i++){
+      const grp = document.createElementNS('http://www.w3.org/2000/svg','g');
+      const d=spiralPath(S.moreuR*0.9, S.moreuTurns, 70);
+      const p0=path('ink-outline',d, Math.max(2,S.moreuW+4)); const p1=path('ink',d,S.moreuW); grp.appendChild(p0); grp.appendChild(p1);
+      const rr = (T/2 - M)*0.75; const th = (i/S.moreuCount)*2*Math.PI;
+      grp.setAttribute('transform',`translate(${(cx + rr*Math.cos(th)).toFixed(1)} ${(cy + rr*Math.sin(th)).toFixed(1)}) rotate(${(th*180/Math.PI+90).toFixed(1)})`);
+      addWrapped(grp);
+    }
+
+    // AYUSI inner ring
+    for(let i=0;i<S.ayusCount;i++){
+      const grp = document.createElementNS('http://www.w3.org/2000/svg','g');
+      const d=ayusPath(S.ayusLen, S.ayusAng, S.ayusRound); grp.appendChild(path('ink-outline',d)); grp.appendChild(path('ink',d));
+      const rr = (T/2 - M)*0.45; const th = (i/S.ayusCount)*2*Math.PI + (i%2?0.05:-0.05);
+      grp.setAttribute('transform',`translate(${(cx + rr*Math.cos(th)).toFixed(1)} ${(cy + rr*Math.sin(th)).toFixed(1)}) rotate(${(th*180/Math.PI-90).toFixed(1)})`);
+      addWrapped(grp);
+    }
+
+    pat.appendChild(g); defsTile.appendChild(pat);
+    tilePreviewRect.setAttribute('fill',`url(#tile)`);
+  }
+
+  function draw(){
+    while(gOutline.firstChild) gOutline.removeChild(gOutline.firstChild);
+    while(gMain.firstChild) gMain.removeChild(gMain.firstChild);
+    while(gAcc.firstChild) gAcc.removeChild(gAcc.firstChild);
+    defsTile.innerHTML='';
+
+    if(!hasAny()){
+      tilePreviewRect.setAttribute('fill','none');
+      guides.setAttribute('opacity','0');
+      return;
+    }
+
+    if(S.mode==='motif'){
+      tilePreviewRect.setAttribute('fill','none');
+      if(S.layout==='radial') layoutRadial(); else layoutGrid();
+    }else{
+      drawSeamlessTile();
+    }
+  }
+
+  // Init
+  function init(){ applyColors(); syncUI(); draw(); }
+  init();
+})();
+</script>
+</body>
+</html>
